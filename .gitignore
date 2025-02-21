@@ -1,0 +1,20 @@
+# Ignore Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Ignore Django secret files
+.env
+
+# Ignore database files
+*.sqlite3
+db.sqlite3
+
+# Ignore node_modules in frontend
+frontend/node_modules/
+
+# Ignore compiled assets
+*.log
+*.out
+*.pid
+.DS_Store
