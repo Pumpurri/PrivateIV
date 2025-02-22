@@ -14,7 +14,7 @@ def validate_age(value):
 
 # Custom user model that extends AbstractUser
 class CustomUser(AbstractUser):
-    email = models.EmailField(unique=True, blank=True, null=True)  # ✅ Optional email
+    email = models.EmailField(unique=True, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
 
     USERNAME_FIELD = "username"

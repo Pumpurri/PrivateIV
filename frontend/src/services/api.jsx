@@ -1,6 +1,5 @@
-
-import axios from "axios";
-import apiClient from "../axios"; 
+import axios from "./axios";
+import apiClient from "./axios"; 
 
 export const registerUser = async (userData) => {
     try {
@@ -21,3 +20,24 @@ export const loginUser = async (credentials) => {
         throw error;
     }
 };
+
+export const verifyAuth = async () => {
+  try {
+    await apiClient.get("/auth/me/");
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+apiClient.interceptors.request.use(config => {
+  const csrfToken = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('csrftoken='))
+      ?.split('=')[1];
+  
+  if (csrfToken) {
+      config.headers['X-CSRFToken'] = csrfToken;
+  }
+  return config;
+});

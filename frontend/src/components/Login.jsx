@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loginUser } from "../services/api";
+import apiClient from '../services/axios';
 
 function Login() {
     const [username, setUsername] = useState("");
@@ -11,14 +12,18 @@ function Login() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const data = await loginUser({ username, password });
-            localStorage.setItem("user", JSON.stringify(data));  // Store user data
-            navigate("/dashboard");  // Redirect to dashboard
+            await apiClient.get('/auth/csrf/');
+            
+            await loginUser({ username, password });
+            
+            const { data } = await apiClient.get("/auth/me/");
+            navigate("/dashboard");
         } catch (error) {
-            setErrorMessage("Invalid credentials. Try again.");
+            console.error('Full error:', error);
+            setErrorMessage(error.response?.data?.non_field_errors?.[0] || "Login failed");
         }
     };
-
+    
     return (
         <div>
             <h2>Login</h2>
