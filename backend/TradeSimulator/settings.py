@@ -18,10 +18,16 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = True   #Just for dev, change for PRODUCTION
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://localhost:5173",
+    "https://127.0.0.1:5173",
+]
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 CORS_ALLOW_HEADERS = ["content-type", "accept", "x-csrftoken"]
 CORS_EXPOSE_HEADERS = ["Content-Type", "X-CSRFToken"]
@@ -35,6 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_extensions',
     # 'portfolio',
     # 'stocks',
     # 'trading',
@@ -128,11 +135,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
@@ -148,26 +152,31 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = "users.CustomUser"
 
+# REST Auth and JWT Settings
 REST_AUTH = {
     'USE_JWT': True,
     'JWT_AUTH_COOKIE': 'access_token',
     'JWT_AUTH_REFRESH_COOKIE': 'refresh_token',
     'JWT_AUTH_HTTPONLY': True,
-    'JWT_AUTH_SAMESITE': 'Lax',
-    'JWT_AUTH_SECURE': False, # Set True in production with HTTPS
+    'JWT_AUTH_SAMESITE': 'None',
+    'JWT_AUTH_SECURE': True,
     'JWT_AUTH_RETURN_EXPIRATION': True,
 }
 
-"""
-Modify when in PRODUCTION
-"""
-CSRF_COOKIE_SECURE = False  # Only over HTTPS, set true when in Production
-SESSION_COOKIE_SECURE = False  # Only over HTTPS, set true when in Production
-CSRF_TRUSTED_ORIGINS = ['http://localhost:5173']  # Frontend origin
+# Security Settings for HTTPS
+CSRF_COOKIE_SECURE = True 
+SESSION_COOKIE_SECURE = True 
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://localhost:5173',  
+    'https://127.0.0.1:5173',
+]
 CSRF_COOKIE_NAME = "csrftoken"
-CSRF_HEADER_NAME = "X-CSRFToken"  # Match CORS header
-CSRF_USE_SESSIONS = False  # Standard cookie-based CSRF
+CSRF_HEADER_NAME = "X-CSRFToken" 
+CSRF_USE_SESSIONS = False 
 
+# JWT Settings
 SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
