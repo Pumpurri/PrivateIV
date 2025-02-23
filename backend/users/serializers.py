@@ -13,16 +13,28 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        fields = ('username', 'password')  # Implement further logic after testing
+        fields = ('email', 'password', 'full_name', 'dob')
 
     def create(self, validated_data):
-        user = CustomUser(username=validated_data["username"])
-        user.set_password(validated_data["password"])  # Hash password
-        user.save()
+        user = CustomUser.objects.create_user (
+            email=validated_data["email"],
+            password=validated_data["password"],
+            full_name=validated_data["full_name"],
+            dob=validated_data["dob"]
+        )
         return user
 
+class CustomUserSerializer(serializers.ModelSerializer):
+    short_name = serializers.ReadOnlyField()
+
+    class Meta:
+        model = CustomUser
+        fields = ('email', 'full_name', 'dob', 'short_name', 'created_at', 'updated_at')
+        read_only_fields = ('created_at', 'updated_at') 
+
 class CustomJWTSerializer(JWTSerializer):
+    user  = CustomUserSerializer(read_only=True)
     def validate(self, attrs):
         data = super().validate(attrs)
-        data['user'] = self.user
+        data['user'] = CustomUserSerializer(self.user).data
         return data
