@@ -1,6 +1,8 @@
+import React from 'react';
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import apiClient from "../services/axios";
+import { logoutUser } from "../utils/auth";
 
 function UserDashboard() {
     const [user, setUser] = useState(null);
@@ -38,7 +40,7 @@ function UserDashboard() {
             ) : (
                 <p>Loading...</p>
             )}
-            <button onClick={handleLogout}>Logout</button>
+            <button onClick={() => logoutUser(navigate)}>Logout</button>
         </div>
     );
 

@@ -3,7 +3,7 @@ import apiClient from "./axios";
 
 export const registerUser = async (userData) => {
     try {
-      const response = await apiClient.post("/auth/register/", userData);  // Use the configured axios instance
+      const response = await apiClient.post("/auth/register/", userData);
       return response.data;
     } catch (error) {
       console.error("Registration failed:", error.response?.data || error);
@@ -21,15 +21,18 @@ export const loginUser = async (credentials) => {
     }
 };
 
+//  Verify if the user is authenticated.
 export const verifyAuth = async () => {
   try {
     await apiClient.get("/auth/me/");
     return true;
-  } catch {
+  } catch (error) {
+    console.error("Auth verification failed:", error);
     return false;
   }
 };
 
+// Attach CSRF token from cookies to every request.
 apiClient.interceptors.request.use(config => {
   const csrfToken = document.cookie
       .split('; ')

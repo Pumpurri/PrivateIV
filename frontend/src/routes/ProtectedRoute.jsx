@@ -1,7 +1,10 @@
+import React from 'react';
 import { useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { verifyAuth } from '../services/api';
 
+// Checks auth status and renders child routes if authenticated;
+// Otherwise, redirects to /login.
 const ProtectedRoute = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
   

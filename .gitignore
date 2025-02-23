@@ -18,3 +18,7 @@ frontend/node_modules/
 *.out
 *.pid
 .DS_Store
+
+# Local HTTPS certificates
+*.pem
+*.key

@@ -1,5 +1,7 @@
+import React from 'react';
 import { useState } from "react";
 import { registerUser } from "../services/api"; 
+import apiClient from '../services/axios';
 
 function Register() {
     const [username, setUsername] = useState("");
@@ -9,7 +11,9 @@ function Register() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            await registerUser({ username, password });  // Use the function from api.js
+            await apiClient.get('/auth/csrf/');
+            
+            await registerUser({ username, password });
             alert("Registration successful");
         } catch (error) {
             console.error("Registration failed", error);
