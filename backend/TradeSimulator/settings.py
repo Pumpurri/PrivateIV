@@ -189,3 +189,5 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
     'REFRESH_TOKEN_IN_BODY': False,
 }
+
+JWT_COOKIE_DOMAIN = os.getenv('JWT_COOKIE_DOMAIN', 'localhost')

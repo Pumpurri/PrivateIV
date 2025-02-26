@@ -34,6 +34,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
 
 class CustomJWTSerializer(JWTSerializer):
     user  = CustomUserSerializer(read_only=True)
+    short_name = serializers.CharField(source='user.short_name', read_only=True)
     def validate(self, attrs):
         data = super().validate(attrs)
         data['user'] = CustomUserSerializer(self.user).data
