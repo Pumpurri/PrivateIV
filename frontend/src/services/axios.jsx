@@ -1,11 +1,11 @@
-import axios from "axios";
+import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: "/api", // Proxy to Django backend
-  headers: {
-    "Content-Type": "application/json",
-  },
+  baseURL: '/api',
   withCredentials: true,
+  xsrfCookieName: 'csrftoken', 
+  xsrfHeaderName: 'X-CSRFToken', 
 });
 
+export { apiClient };
 export default apiClient;
