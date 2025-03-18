@@ -23,6 +23,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'users',
+    'portfolio',
+    'trading',
+    'stocks',
 ]
 
 MIDDLEWARE = [
