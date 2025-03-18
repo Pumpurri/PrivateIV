@@ -1,23 +1,38 @@
-import React from 'react';
-import { useState } from "react";
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from "react-router-dom";
 import { registerUser } from "../services/api"; 
-import apiClient from '../services/axios';
 
 function Register() {
-    const [username, setUsername] = useState("");
-    const [password, setPassword] = useState("");
-    const [errorMessage, setErrorMessage] = useState("");
+    const [form, setForm] = useState({ 
+        email: '', 
+        password: '', 
+        fullName: '', 
+        dob: '' 
+    });
+    const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setError('');
+        setIsSubmitting(true);
+
         try {
-            await apiClient.get('/auth/csrf/');
-            
-            await registerUser({ username, password });
-            alert("Registration successful");
-        } catch (error) {
-            console.error("Registration failed", error);
-            setErrorMessage(error.response?.data?.detail || "Registration failed.");
+            await registerUser({
+                email: form.email,
+                password: form.password,
+                full_name: form.fullName,
+                dob: form.dob
+            });
+            navigate('/dashboard');
+        } catch (err) {
+            const errorMessage = err.response?.data?.detail || 
+                               err.response?.data?.error ||
+                               'Registration failed. Please try again.';
+            setError(errorMessage);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -25,13 +40,24 @@ function Register() {
         <div>
             <h2>Register</h2>
             <form onSubmit={handleSubmit}>
-                <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-                <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                <button type="submit">Register</button>
+                <input type="email" placeholder="Email" value={form.email}
+                onChange={e => setForm({...form, email: e.target.value})} required />
+                
+                <input type="password" placeholder="Password" value={form.password}
+                onChange={e => setForm({...form, password: e.target.value})} required />
+                
+                <input type="text" placeholder="Full Name" value={form.fullName}
+                onChange={e => setForm({...form, fullName: e.target.value})} required />
+                
+                <input type="date" max={new Date().toISOString().split('T')[0]} 
+                value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} required />
+                
+                <button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Registering...' : 'Register'}
+                </button>
             </form>
-            {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
+            {error && <p style={{ color: 'red' }}>{error}</p>}
         </div>
     );
 }
-
 export default Register;
