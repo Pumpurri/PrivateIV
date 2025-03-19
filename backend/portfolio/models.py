@@ -104,3 +104,22 @@ class Holding(models.Model):
         total_shares = self.quantity + new_quantity
         self.average_cost = total_cost / total_shares
         self.save()
+
+
+class Contribution(models.Model):
+    portfolio = models.ForeignKey(
+        Portfolio,
+        related_name='contributions',
+        on_delete=models.CASCADE
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))]
+    )
+    date = models.DateTimeField(default=timezone.now, db_index=True)
+
+    objects = ContributionManager()
+
+    class Meta:
+        ordering = ['-date']
