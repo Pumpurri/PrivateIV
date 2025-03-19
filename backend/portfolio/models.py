@@ -105,6 +105,15 @@ class Holding(models.Model):
         self.average_cost = total_cost / total_shares
         self.save()
 
+class ContributionManager(models.Manager):
+    def contribute(self, portfolio, amount):
+        if amount <= Decimal('0.00'):
+            raise ValidationError("Contribution amount must be positive")
+            
+        return self.create(
+            portfolio=portfolio,
+            amount=amount
+        )
 
 class Contribution(models.Model):
     portfolio = models.ForeignKey(
@@ -123,3 +132,7 @@ class Contribution(models.Model):
 
     class Meta:
         ordering = ['-date']
+
+    # TODO:  portfolio balance updates"
+
+    
