@@ -66,7 +66,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         if not self.full_name:
             raise ValidationError({"full_name": "This field is required."})
         
-        # Validate dob ONLY for regular users
         if not self.is_superuser and not self.dob:
             raise ValidationError({"dob": "Required for regular users."})
 

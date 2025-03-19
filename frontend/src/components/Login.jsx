@@ -25,7 +25,6 @@ function Login() {
         setErrorMessage("");
         setIsSubmitting(true);
         
-        // Create new controller for each request
         abortControllerRef.current = new AbortController();
 
         try {
