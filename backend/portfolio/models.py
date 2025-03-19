@@ -57,3 +57,50 @@ class Portfolio(models.Model):
 
     def __str__(self):
         return f"{self.user.email}'s {self.name} Portfolio"
+
+# portfolios/models.py (partial)
+class HoldingManager(models.Manager):
+    def get_holding(self, portfolio, symbol):
+        return self.get_queryset().get(
+            portfolio=portfolio,
+            symbol=symbol.upper()
+        )
+
+class Holding(models.Model):
+    portfolio = models.ForeignKey(
+        Portfolio,
+        related_name='holdings',
+        on_delete=models.CASCADE
+    )
+    symbol = models.CharField(max_length=10, db_index=True)
+    quantity = models.PositiveIntegerField(default=0)
+    average_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00')
+    )
+    
+    objects = HoldingManager()
+
+    class Meta:
+        unique_together = ('portfolio', 'symbol')
+        ordering = ['symbol']
+
+    @property
+    def current_price(self):
+        from .services import get_current_price
+        return get_current_price(self.symbol)
+
+    @property
+    def market_value(self):
+        return Decimal(self.quantity) * self.current_price
+
+    @property
+    def unrealized_gain(self):
+        return (self.current_price - self.average_cost) * self.quantity
+
+    def update_average_cost(self, new_quantity, new_price):
+        total_cost = (self.quantity * self.average_cost) + (new_quantity * new_price)
+        total_shares = self.quantity + new_quantity
+        self.average_cost = total_cost / total_shares
+        self.save()
