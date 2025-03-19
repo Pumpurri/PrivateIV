@@ -1,4 +1,3 @@
-# portfolios/models.py (partial)
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
@@ -57,8 +56,31 @@ class Portfolio(models.Model):
 
     def __str__(self):
         return f"{self.user.email}'s {self.name} Portfolio"
+    
+    def update_total_value(self):
+        try:
+            holdings_value = self.holdings.aggregate(
+                total=Sum(F('quantity') * F('current_price'))
+            )['total'] or Decimal('0.00')
+            self.total_value = holdings_value + self.cash_balance
+            self.save(update_fields=['total_value'])
+        except Exception as e:
+            logger.error(f"Error updating portfolio {self.id} value: {str(e)}")
+            raise
 
-# portfolios/models.py (partial)
+    def get_cost_basis(self):
+        return self.transactions.filter(
+            type=Transaction.TransactionType.BUY
+        ).aggregate(
+            total=Sum(F('quantity') * F('price'))
+        )['total'] or Decimal('0.00')
+
+    def get_total_return(self):
+        cost_basis = self.get_cost_basis()
+        if cost_basis == Decimal('0.00'):
+            return Decimal('0.00')
+        return ((self.total_value - cost_basis) / cost_basis) * 100
+
 class HoldingManager(models.Manager):
     def get_holding(self, portfolio, symbol):
         return self.get_queryset().get(
@@ -88,8 +110,7 @@ class Holding(models.Model):
 
     @property
     def current_price(self):
-        from .services import get_current_price
-        return get_current_price(self.symbol)
+        return Decimal('100.00')  # TODO: HARDCODED
 
     @property
     def market_value(self):
@@ -135,4 +156,3 @@ class Contribution(models.Model):
 
     # TODO:  portfolio balance updates"
 
-    
