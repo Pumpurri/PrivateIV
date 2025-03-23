@@ -8,6 +8,7 @@ class Stock(models.Model):
         decimal_places=2,
         default=100.00  
     )
+    last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.symbol} ({self.name})"
