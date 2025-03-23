@@ -3,5 +3,6 @@ from .models import Stock
 
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
-    list_display = ('symbol', 'name', 'current_price',)
+    list_display = ('symbol', 'name', 'current_price', 'last_updated')
+    search_fields = ('symbol', 'name')
 
