@@ -49,7 +49,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     def validate_full_name(self, value):
         stripped = value.strip()
-        if len(stripped) < 2:
+        if len(stripped) < 2 or ' ' not in stripped:
             raise serializers.ValidationError("Enter a valid full name.")
         return stripped
 
