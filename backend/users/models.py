@@ -39,7 +39,6 @@ class CustomUserManager(BaseUserManager):
         """
         Create a superuser: Only requires email and full_name.
         """
-        extra_fields.setdefault("full_name", "Admin")
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         
