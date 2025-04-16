@@ -1,4 +1,5 @@
 from django.db import models
+from decimal import Decimal
 
 class Stock(models.Model):
     symbol = models.CharField(max_length=10, unique=True)
@@ -7,6 +8,7 @@ class Stock(models.Model):
         max_digits=10,
         decimal_places=2
     )
+    is_active = models.BooleanField(default=True)
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -14,5 +16,5 @@ class Stock(models.Model):
 
     def save(self, *args, **kwargs):
         self.symbol = self.symbol.strip().upper()
-        self.current_price = round(self.current_price, 2)
+        self.current_price = self.current_price.quantize(Decimal('0.01'))
         super().save(*args, **kwargs)
