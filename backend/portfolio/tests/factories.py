@@ -4,7 +4,7 @@ from factory import Faker, SubFactory
 from factory.django import DjangoModelFactory
 from portfolio.models import Portfolio, Holding, Transaction
 from decimal import Decimal
-
+#efkds
 class PortfolioFactory(DjangoModelFactory):
     class Meta:
         model = Portfolio
@@ -19,7 +19,7 @@ class PortfolioFactory(DjangoModelFactory):
             is_default=True,
             cash_balance=Decimal('10000.00')
         )
-
+        
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
         if kwargs.get('is_default', False):
