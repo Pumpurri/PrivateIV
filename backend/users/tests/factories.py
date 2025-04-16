@@ -1,6 +1,8 @@
 import factory
 from factory import SelfAttribute
 from users.models import CustomUser
+from portfolio.models import Portfolio
+from portfolio.tests.factories import PortfolioFactory
 
 class UserFactory(factory.django.DjangoModelFactory):
     class Meta:
@@ -8,7 +10,9 @@ class UserFactory(factory.django.DjangoModelFactory):
     
     email = factory.Sequence(lambda n: f'user{n}@test.com')
     full_name = factory.Faker('name')
-    password = factory.PostGenerationMethodCall('set_password', 'testpass123!')
+    password = factory.PostGeneration(
+        lambda obj, create, extracted: obj.set_password('testpass123!')
+    )
     is_superuser = False
 
     dob = factory.Maybe(
@@ -23,3 +27,9 @@ class UserFactory(factory.django.DjangoModelFactory):
             is_staff=True,
             dob=None,
         )
+
+    @classmethod
+    def _after_postgeneration(cls, instance, create, results=None):
+        """Mirror production object creation flow"""
+        if create:
+            instance.save()
