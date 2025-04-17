@@ -55,8 +55,11 @@ class Portfolio(models.Model):
         self.cash_balance = new_balance.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.save(update_fields=['cash_balance'])
 
-    def save(self, *args, **kwargs):
+    def clean(self):
         if self.cash_balance < Decimal('0'):
-            raise ValidationError("Cash balance cannot be negative")
-        self.cash_balance = self.cash_balance.quantize(Decimal('0.01'))
+            raise ValidationError("Cash balance cannot be negative.")
+
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
         super().save(*args, **kwargs)

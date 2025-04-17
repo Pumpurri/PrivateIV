@@ -3,17 +3,13 @@ from django.db import transaction as db_transaction
 from decimal import Decimal, ROUND_HALF_UP
 from django.core.exceptions import ValidationError
 import logging
-from portfolio.models import Transaction, Holding
+from portfolio.models import Transaction, Holding, RealizedPNL, PortfolioPerformance
 
 logger = logging.getLogger(__name__)
 
 class TransactionService:
     @classmethod
     def execute_transaction(cls, transaction):
-        """
-        Orchestrates transaction processing with atomic execution and error handling.
-        Implements FINRA Rule 11870 for good order handling.
-        """
         try:
             with db_transaction.atomic(using='default'):
                 cls._process_transaction_core(transaction)
@@ -103,6 +99,9 @@ class TransactionService:
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
         
+        holding = portfolio.holdings.get(stock=stock)
+        pnl_value = (current_price - holding.average_purchase_price) * quantity
+        
         portfolio.holdings.process_sale(
             portfolio=portfolio,
             stock=stock,
@@ -110,14 +109,34 @@ class TransactionService:
         )
         portfolio.adjust_cash(total_revenue)
         
+        RealizedPNL.objects.create(
+            portfolio=portfolio,
+            transaction=transaction,
+            stock=stock,
+            quantity=quantity,
+            purchase_price=holding.average_purchase_price,
+            sell_price=current_price,
+            pnl=pnl_value
+        )
+            
         transaction.executed_price = current_price
         transaction.amount = total_revenue
+
 
     @classmethod
     def _process_deposit(cls, transaction):
         """Regulation D compliant deposit processing"""
         amount = cls._validate_amount(transaction.amount)
-        transaction.portfolio.adjust_cash(amount)
+        portfolio = transaction.portfolio
+        
+        # Ensure performance record exists
+        performance, _ = PortfolioPerformance.objects.get_or_create(
+            portfolio=portfolio
+        )
+        
+        portfolio.adjust_cash(amount)
+        performance.total_deposits += amount
+        performance.save(update_fields=['total_deposits'])
         transaction.executed_price = None
 
     @classmethod

@@ -45,12 +45,13 @@ class TestPortfolioModel:
                 cash_balance=Decimal('10000.00')
             )
             
-            with pytest.raises(IntegrityError):
+            with pytest.raises(ValidationError) as excinfo:
                 Portfolio.objects.create(
                     user=test_user,
                     is_default=True,
                     cash_balance=Decimal('20000.00')
                 )
+            assert 'unique_default_portfolio' in str(excinfo.value)
 
     def test_non_default_portfolio_creation(self, user):
         """Test creation of additional non-default portfolios"""

@@ -6,6 +6,8 @@ from users.tests.factories import UserFactory
 from stocks.models import Stock
 from portfolio.models import Portfolio, Holding, Transaction
 from stocks.tests.factories import StockFactory
+from django.utils import timezone
+from datetime import timezone as datetime_timezone
 import logging
 
 @pytest.fixture(scope="module")
@@ -87,7 +89,7 @@ def buy_transaction(funded_portfolio, stock):
         transaction_type='BUY',
         stock=stock,
         quantity=10,
-        price=stock.current_price,
+        executed_price=stock.current_price,
         amount=10 * stock.current_price
     )
 
@@ -102,7 +104,7 @@ def sell_transaction(portfolio_with_holding):
         transaction_type='SELL',
         stock=holding.stock,
         quantity=5,
-        price=holding.stock.current_price,
+        executed_price=holding.stock.current_price,
         amount=5 * holding.stock.current_price
     )
 
@@ -127,3 +129,60 @@ def cleanup_transactions():
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Cleanup error: {str(e)}")
+
+# Add these fixtures to existing conftest.py
+@pytest.fixture
+def portfolio_with_history(user_factory):
+    """Portfolio with historical transactions and snapshots"""
+    user = user_factory.create()
+    portfolio = user.portfolios.get(is_default=True)
+    
+    # Create historical transactions
+    dates = [
+        timezone.now() - timezone.timedelta(days=30),
+        timezone.now() - timezone.timedelta(days=15),
+        timezone.now()
+    ]
+    
+    stock = StockFactory(current_price=Decimal('100.00'))
+    
+    for idx, txn_date in enumerate(dates):
+        with timezone.override(datetime_timezone.utc):
+            TransactionFactory(
+                portfolio=portfolio,
+                transaction_type='DEPOSIT' if idx % 2 == 0 else 'BUY',
+                amount=Decimal('5000.00') if idx % 2 == 0 else None,
+                stock=stock if idx % 2 != 0 else None,
+                quantity=50 if idx % 2 != 0 else None,
+                timestamp=txn_date
+            )
+    
+    return portfolio
+
+@pytest.fixture
+def portfolio_with_loss(portfolio_with_holding):
+    """Portfolio with realized investment loss"""
+    portfolio = portfolio_with_holding['portfolio']
+    holding = portfolio_with_holding['holding']
+
+    stock = holding.stock
+    TransactionFactory(
+        portfolio=portfolio,
+        transaction_type='BUY',
+        stock=stock,
+        quantity=holding.quantity,
+        executed_price=holding.average_purchase_price
+    )
+
+    stock.current_price = holding.average_purchase_price * Decimal('0.8')
+    stock.save()
+    
+    TransactionFactory(
+        portfolio=portfolio,
+        transaction_type='SELL',
+        stock=stock,
+        quantity=holding.quantity,
+        executed_price=stock.current_price
+    )
+    
+    return portfolio

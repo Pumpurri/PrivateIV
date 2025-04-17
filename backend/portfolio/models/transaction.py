@@ -96,7 +96,7 @@ class Transaction(models.Model):
         with transaction.atomic():
             super().save(*args, **kwargs)
             if is_new:
-                from portfolio.services.transaction_services import TransactionService
+                from backend.portfolio.services.transaction_service import TransactionService
                 TransactionService.execute_transaction(self)
 
     def __str__(self):
