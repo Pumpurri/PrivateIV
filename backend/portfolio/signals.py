@@ -1,7 +1,7 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from users.models import CustomUser
-from portfolio.models import Portfolio
+from portfolio.models import Portfolio, PortfolioPerformance
 from decimal import Decimal
 from django.conf import settings
 
@@ -15,3 +15,9 @@ def create_default_portfolio(sender, instance, created, **kwargs):
             is_default=True,
             cash_balance=Decimal('10000.00')
         )
+
+@receiver(post_save, sender=Portfolio)
+def create_portfolio_performance(sender, instance, created, **kwargs):
+    """Create performance tracking model for each new portfolio"""
+    if created and not hasattr(instance, 'performance'):
+        PortfolioPerformance.objects.create(portfolio=instance)
