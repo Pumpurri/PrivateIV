@@ -4,7 +4,9 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from portfolio.models import Transaction, Holding
 from portfolio.tests.factories import TransactionFactory
+from portfolio.services.transaction_service import TransactionService
 from stocks.tests.factories import StockFactory
+import uuid
 
 # Fixtures --------------------------------------------------------------------
 @pytest.fixture
@@ -41,27 +43,30 @@ class TestTransactionModel:
 
     def test_buy_transaction_validation(self, portfolio):
         with pytest.raises(ValidationError) as exc:
-            Transaction.objects.create(
-                portfolio=portfolio,
-                transaction_type='BUY',
-                quantity=10
-            )
+            TransactionService.execute_transaction({
+                'portfolio': portfolio,
+                'transaction_type': 'BUY',
+                'quantity': 10,
+                'idempotency_key': str(uuid.uuid4())
+            })
         assert "Stock required for trade transactions" in str(exc.value)
 
     def test_deposit_transaction_validation(self, portfolio):
         with pytest.raises(ValidationError) as exc:
-            Transaction.objects.create(
-                portfolio=portfolio,
-                transaction_type='DEPOSIT',
-                stock=StockFactory()
-            )
+            TransactionService.execute_transaction({
+                'portfolio': portfolio,
+                'transaction_type': 'DEPOSIT',
+                'stock': StockFactory(),
+                'amount': Decimal('1000.00'),
+                'idempotency_key': str(uuid.uuid4())
+            })
         assert "Stock must be null for non-trade transactions" in str(exc.value)
 
     def test_transaction_price_auto_calculation(self, portfolio, stock):
         stock.current_price = Decimal('150.00')
         stock.save()
         
-        t = Transaction.objects.create(
+        t = TransactionFactory(
             portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,
@@ -83,17 +88,16 @@ class TestTransactionService:
         stock.current_price = Decimal('100.00')
         stock.save()
         
-        transaction = TransactionFactory.build(
-            portfolio=portfolio,
-            transaction_type='BUY',
-            stock=stock,
-            quantity=10
-        )
-        
         initial_cash = portfolio.cash_balance
         assert initial_cash == Decimal('10000.00'), "Initial cash not set correctly"
 
-        transaction.save()
+        transaction = TransactionService.execute_transaction({
+            'portfolio': portfolio,
+            'transaction_type': 'BUY',
+            'stock': stock,
+            'quantity': 10,
+            'idempotency_key': str(uuid.uuid4())
+        })
         
         portfolio.refresh_from_db()
         transaction.refresh_from_db()
@@ -112,17 +116,16 @@ class TestTransactionService:
         stock.current_price = Decimal('100.00')
         stock.save()
         
-        transaction = TransactionFactory.build(
-            portfolio=portfolio,
-            transaction_type='SELL',
-            stock=stock,
-            quantity=5
-        )
-        
         initial_cash = portfolio.cash_balance
         initial_quantity = holding.quantity
         
-        transaction.save()
+        transaction = TransactionService.execute_transaction({
+            'portfolio': portfolio,
+            'transaction_type': 'SELL',
+            'stock': stock,
+            'quantity': 5,
+            'idempotency_key': str(uuid.uuid4())
+        })
         
         portfolio.refresh_from_db()
         transaction.refresh_from_db()
@@ -133,58 +136,57 @@ class TestTransactionService:
 
     def test_deposit_processing(self, portfolio):
         initial_balance = portfolio.cash_balance
-        deposit = TransactionFactory(
-            portfolio=portfolio,
-            transaction_type='DEPOSIT',
-            amount=Decimal('5000.00')
-        )
-        
-        deposit.save()
+        deposit = TransactionService.execute_transaction({
+            'portfolio': portfolio,
+            'transaction_type': 'DEPOSIT',
+            'amount': Decimal('5000.00'),
+            'idempotency_key': str(uuid.uuid4())
+        })
         
         portfolio.refresh_from_db()
         assert portfolio.cash_balance == initial_balance + deposit.amount
 
     def test_insufficient_funds_buy(self, portfolio, stock):
         with pytest.raises(ValidationError), transaction.atomic():
-            t = Transaction.objects.create(
-                portfolio=portfolio,
-                transaction_type='BUY',
-                stock=stock,
-                quantity=100000  # Impossible quantity
-            )
-            t.save()
+            TransactionService.execute_transaction({
+                'portfolio': portfolio,
+                'transaction_type': 'BUY',
+                'stock': stock,
+                'quantity': 100000,  # Impossible quantity
+                'idempotency_key': str(uuid.uuid4())
+            })
 
     def test_sell_nonexistent_holding(self, portfolio, stock):
         with pytest.raises(ValidationError), transaction.atomic():
-            t = Transaction.objects.create(
-                portfolio=portfolio,
-                transaction_type='SELL',
-                stock=stock,
-                quantity=10
-            )
-            t.save()
+            TransactionService.execute_transaction({
+                'portfolio': portfolio,
+                'transaction_type': 'SELL',
+                'stock': stock,
+                'quantity': 10,
+                'idempotency_key': str(uuid.uuid4())
+            })
         
     def test_transaction_rollback_on_failure(self, portfolio, stock):
         initial_cash = portfolio.cash_balance
         try:
             with transaction.atomic():
                 # Valid transaction
-                t1 = Transaction.objects.create(
-                    portfolio=portfolio,
-                    transaction_type='BUY',
-                    stock=stock,
-                    quantity=50
-                )
-                t1.save()
+                TransactionService.execute_transaction({
+                    'portfolio': portfolio,
+                    'transaction_type': 'BUY',
+                    'stock': stock,
+                    'quantity': 50,
+                    'idempotency_key': str(uuid.uuid4())
+                })
                 
                 # Invalid transaction that should fail
-                t2 = Transaction.objects.create(
-                    portfolio=portfolio,
-                    transaction_type='BUY',
-                    stock=stock,
-                    quantity=100000  # Impossible quantity
-                )
-                t2.save()
+                TransactionService.execute_transaction({
+                    'portfolio': portfolio,
+                    'transaction_type': 'BUY',
+                    'stock': stock,
+                    'quantity': 100000,  # Impossible quantity
+                    'idempotency_key': str(uuid.uuid4())
+                })
         except ValidationError:
             pass
 

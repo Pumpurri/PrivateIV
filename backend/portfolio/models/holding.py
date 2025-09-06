@@ -41,8 +41,9 @@ class HoldingManager(models.Manager):
 
             holding.quantity -= quantity
             if holding.quantity == 0:
-                holding.is_active = False
-            holding.save()
+                holding.delete()
+            else:
+                holding.save()
 
             return holding
 
