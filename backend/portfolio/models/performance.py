@@ -20,6 +20,13 @@ class PortfolioPerformance(models.Model):
         default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0.00'))]
     )
+    total_withdrawals = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Total cash withdrawn from portfolio"
+    )
     last_updated = models.DateTimeField(auto_now=True)
 
     class Meta:

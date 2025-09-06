@@ -4,7 +4,7 @@ from factory import Faker, SubFactory
 from factory.django import DjangoModelFactory
 from portfolio.models import Portfolio, Holding, Transaction
 from decimal import Decimal
-#efkds
+
 class PortfolioFactory(DjangoModelFactory):
     class Meta:
         model = Portfolio
@@ -12,19 +12,30 @@ class PortfolioFactory(DjangoModelFactory):
 
     user = factory.SubFactory('users.tests.factories.UserFactory')
     is_default = False
-    cash_balance = Decimal('10000.00')
+    cash_balance = Decimal('0.00')
 
     class Params:
         default = factory.Trait(
             is_default=True,
+        )
+        funded = factory.Trait(
             cash_balance=Decimal('10000.00')
         )
         
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
-        if kwargs.get('is_default', False):
-            return model_class.objects.create(*args, **kwargs)
-        return super()._create(model_class, *args, **kwargs)
+        cash_balance = kwargs.pop('cash_balance', Decimal('0.00'))
+        portfolio = super()._create(model_class, *args, **kwargs)
+        
+        if cash_balance != Decimal('0.00'):
+            from portfolio.models import Transaction
+            # Create deposit transaction
+            Transaction.objects.create(
+                portfolio=portfolio,
+                transaction_type=Transaction.TransactionType.DEPOSIT,
+                amount=cash_balance
+            )
+        return portfolio
 
 class HoldingFactory(DjangoModelFactory):
     class Meta:

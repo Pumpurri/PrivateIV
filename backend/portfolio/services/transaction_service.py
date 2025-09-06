@@ -9,18 +9,28 @@ logger = logging.getLogger(__name__)
 
 class TransactionService:
     @classmethod
-    def execute_transaction(cls, transaction):
-        try:
-            with db_transaction.atomic(using='default'):
-                cls._process_transaction_core(transaction)
-        except ValidationError as e:
-            cls._handle_failed_transaction(transaction, str(e))
-            raise
-        except Exception as e:
-            logger.critical(f"Unexpected error in transaction {transaction.id}: {str(e)}")
-            raise ValidationError("Transaction processing failed") from e
-        finally:
-            transaction.refresh_from_db()
+    def execute_transaction(cls, transaction_data):
+        """Idempotent transaction processing with duplicate detection"""
+        with db_transaction.atomic(using='default'):
+            existing = Transaction.all_objects.filter(
+                portfolio=transaction_data['portfolio'],
+                idempotency_key=transaction_data['idempotency_key']
+            ).first()
+            
+            if existing:
+                logger.warning(f"Idempotency key collision: {transaction_data['idempotency_key']}")
+                return existing
+
+            transaction = Transaction(**transaction_data)
+            transaction._created_by_service = True
+            transaction.full_clean()
+
+            handler = cls._get_transaction_handler(transaction.transaction_type)
+            handler(transaction)
+            transaction.save()
+            
+            return transaction
+
 
     @classmethod
     def _process_transaction_core(cls, transaction):
@@ -36,6 +46,7 @@ class TransactionService:
             Transaction.TransactionType.BUY: cls._process_buy,
             Transaction.TransactionType.SELL: cls._process_sell,
             Transaction.TransactionType.DEPOSIT: cls._process_deposit,
+            Transaction.TransactionType.WITHDRAWAL: cls._process_withdrawal,
         }
         
         if transaction_type not in handlers:
@@ -140,8 +151,22 @@ class TransactionService:
         transaction.executed_price = None
 
     @classmethod
+    def _process_withdrawal(cls, transaction):
+        amount = cls._validate_amount(transaction.amount)
+        portfolio = transaction.portfolio
+        
+        # Ensure performance record exists
+        performance, _ = PortfolioPerformance.objects.get_or_create(
+            portfolio=portfolio
+        )
+        
+        portfolio.adjust_cash(-amount)
+        performance.total_withdrawals += amount
+        performance.save(update_fields=['total_withdrawals'])
+        transaction.executed_price = None
+
+    @classmethod
     def _validate_stock(cls, stock):
-        """FINRA Rule 4210 validation"""
         if not stock or not stock.is_active:
             raise ValidationError("Invalid or inactive security")
         if not hasattr(stock, 'is_active'):

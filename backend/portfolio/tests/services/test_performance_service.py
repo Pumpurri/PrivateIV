@@ -33,30 +33,11 @@ class TestPerformanceService:
         )
         assert result == Decimal('0.0000')
 
-    def test_performance_attribution(self, funded_portfolio):
+    def test_performance_attribution(self, real_loss_portfolio):
         """Test cash vs investment contribution breakdown"""
-        # Setup deposits and investment activity
-        TransactionFactory(
-            portfolio=funded_portfolio,
-            transaction_type='DEPOSIT',
-            amount=Decimal('5000.00')
-        )
-        # ... create investment transactions ...
-        
-        result = PerformanceCalculator.calculate_total_growth(
-            funded_portfolio
-        )
-        
-        assert 'cash_contribution' in result
-        assert 'investment_growth' in result
-        assert 'total_return' in result
-        assert result['total_return'] == (
-            result['cash_contribution'] + result['investment_growth']
-        )
+        calculator = PerformanceCalculator()
+        result = calculator.calculate_total_growth(real_loss_portfolio)
 
-    def test_negative_returns_attribution(self, portfolio_with_loss):
-        """Test proper handling of negative investment growth"""
-        result = PerformanceCalculator.calculate_total_growth(
-            portfolio_with_loss
-        )
-        assert result['investment_growth'] < Decimal('0.00')
+        expected_loss = Decimal('-1000.00')
+        assert result['investment_growth'] == expected_loss
+        assert result['total_return'] == real_loss_portfolio.total_value

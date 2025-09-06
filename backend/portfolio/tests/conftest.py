@@ -9,24 +9,6 @@ from stocks.tests.factories import StockFactory
 from django.utils import timezone
 from datetime import timezone as datetime_timezone
 import logging
-
-@pytest.fixture(scope="module")
-def core_stock_data():
-    return [
-        {'symbol': 'AAPL', 'name': 'Apple Inc.', 'price': Decimal('189.84')},
-        {'symbol': 'GOOGL', 'name': 'Alphabet Inc.', 'price': Decimal('136.22')},
-        {'symbol': 'MSFT', 'name': 'Microsoft Corporation', 'price': Decimal('311.45')},
-        {'symbol': 'AMZN', 'name': 'Amazon.com Inc.', 'price': Decimal('145.86')},
-        {'symbol': 'TSLA', 'name': 'Tesla Inc.', 'price': Decimal('258.00')},
-        {'symbol': 'META', 'name': 'Meta Platforms Inc.', 'price': Decimal('320.12')},
-        {'symbol': 'NVDA', 'name': 'NVIDIA Corporation', 'price': Decimal('474.45')},
-        {'symbol': 'NFLX', 'name': 'Netflix Inc.', 'price': Decimal('415.39')},
-        {'symbol': 'JPM', 'name': 'JPMorgan Chase & Co.', 'price': Decimal('154.87')},
-        {'symbol': 'BAC', 'name': 'Bank of America Corp.', 'price': Decimal('28.32')},
-        {'symbol': 'V', 'name': 'Visa Inc.', 'price': Decimal('241.51')},
-        {'symbol': 'MA', 'name': 'Mastercard Inc.', 'price': Decimal('379.77')},
-        {'symbol': 'INTC', 'name': 'Intel Corporation', 'price': Decimal('34.22')},
-    ]
     
 @pytest.fixture
 def stock():
@@ -37,31 +19,15 @@ def stock():
     )
 
 @pytest.fixture
-def test_stocks(core_stock_data):
-    return [
-        StockFactory.create(
-            symbol=data['symbol'],
-            name=data['name'],
-            current_price=data['price']
-        ) for data in core_stock_data
-    ]
-
-@pytest.fixture
 def portfolio(user_factory):
     user = user_factory.create()
-    return user.portfolios.get(is_default=True)
+    portfolio = user.portfolios.get(is_default=True)
+    return portfolio
 
 @pytest.fixture
 def user_factory():
     from users.tests.factories import UserFactory
     return UserFactory
-
-@pytest.fixture
-def funded_portfolio(portfolio):
-    """Portfolio with initial cash balance"""
-    portfolio.cash_balance = Decimal('10000.00')
-    portfolio.save()
-    return portfolio
 
 @pytest.fixture
 def holding(portfolio, stock):
@@ -82,18 +48,6 @@ def portfolio_with_holding(holding):
     }
 
 @pytest.fixture
-def buy_transaction(funded_portfolio, stock):
-    """Pre-configured buy transaction"""
-    return TransactionFactory(
-        portfolio=funded_portfolio,
-        transaction_type='BUY',
-        stock=stock,
-        quantity=10,
-        executed_price=stock.current_price,
-        amount=10 * stock.current_price
-    )
-
-@pytest.fixture
 def sell_transaction(portfolio_with_holding):
     """Pre-configured sell transaction"""
     portfolio = portfolio_with_holding['portfolio']
@@ -108,29 +62,6 @@ def sell_transaction(portfolio_with_holding):
         amount=5 * holding.stock.current_price
     )
 
-@pytest.fixture
-def aapl_holding(portfolio, test_stocks):
-    return HoldingFactory(
-        portfolio=portfolio,
-        stock=test_stocks[0],  # AAPL
-        quantity=100,
-        average_purchase_price=150
-    )
-
-@pytest.fixture(autouse=True)
-def cleanup_transactions():
-    """Ensure clean state between tests"""
-    yield
-    try:
-        with transaction.atomic():
-            Transaction.objects.all().delete()
-            Portfolio.objects.all().delete()
-            Holding.objects.all().delete()
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Cleanup error: {str(e)}")
-
-# Add these fixtures to existing conftest.py
 @pytest.fixture
 def portfolio_with_history(user_factory):
     """Portfolio with historical transactions and snapshots"""
@@ -160,29 +91,34 @@ def portfolio_with_history(user_factory):
     return portfolio
 
 @pytest.fixture
-def portfolio_with_loss(portfolio_with_holding):
-    """Portfolio with realized investment loss"""
-    portfolio = portfolio_with_holding['portfolio']
-    holding = portfolio_with_holding['holding']
+def real_loss_portfolio(user_factory):
+    user = user_factory.create()
+    portfolio = user.portfolios.get(is_default=True)
 
-    stock = holding.stock
+    stock = StockFactory(current_price=Decimal('50.00'))
+
+    # Buy at $50 (real money out)
     TransactionFactory(
         portfolio=portfolio,
         transaction_type='BUY',
         stock=stock,
-        quantity=holding.quantity,
-        executed_price=holding.average_purchase_price
+        quantity=100,
+        executed_price=Decimal('50.00'),
+        amount=Decimal('5000.00')
     )
 
-    stock.current_price = holding.average_purchase_price * Decimal('0.8')
+    # Market drops
+    stock.current_price = Decimal('40.00')
     stock.save()
-    
+
+    # Sell at loss
     TransactionFactory(
         portfolio=portfolio,
         transaction_type='SELL',
         stock=stock,
-        quantity=holding.quantity,
-        executed_price=stock.current_price
+        quantity=100,
+        executed_price=Decimal('40.00'),
+        amount=Decimal('4000.00')
     )
-    
+
     return portfolio

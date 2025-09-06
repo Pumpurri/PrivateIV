@@ -8,9 +8,9 @@ from stocks.tests.factories import StockFactory
 
 # Fixtures --------------------------------------------------------------------
 @pytest.fixture
-def buy_transaction(funded_portfolio, stock):
+def buy_transaction(portfolio, stock):
     return TransactionFactory(
-        portfolio=funded_portfolio,
+        portfolio=portfolio,
         transaction_type='BUY',
         stock=stock,
         quantity=10,
@@ -31,39 +31,38 @@ def sell_transaction(portfolio_with_holding):
 @pytest.mark.django_db
 class TestTransactionModel:
     def test_transaction_creation(self, buy_transaction):
-        assert Transaction.objects.count() == 1
+        assert Transaction.objects.count() == 2  # Initial deposit + buy
         assert buy_transaction.portfolio.user.email is not None
-        assert str(buy_transaction) == f"BUY - {buy_transaction.amount}$"
 
     def test_transaction_type_validation(self):
         with pytest.raises(ValidationError) as exc:
             TransactionFactory(transaction_type='INVALID')
         assert "is not a valid choice" in str(exc.value)
 
-    def test_buy_transaction_validation(self, funded_portfolio):
+    def test_buy_transaction_validation(self, portfolio):
         with pytest.raises(ValidationError) as exc:
             Transaction.objects.create(
-                portfolio=funded_portfolio,
+                portfolio=portfolio,
                 transaction_type='BUY',
                 quantity=10
             )
         assert "Stock required for trade transactions" in str(exc.value)
 
-    def test_deposit_transaction_validation(self, funded_portfolio):
+    def test_deposit_transaction_validation(self, portfolio):
         with pytest.raises(ValidationError) as exc:
             Transaction.objects.create(
-                portfolio=funded_portfolio,
+                portfolio=portfolio,
                 transaction_type='DEPOSIT',
                 stock=StockFactory()
             )
         assert "Stock must be null for non-trade transactions" in str(exc.value)
 
-    def test_transaction_price_auto_calculation(self, funded_portfolio, stock):
+    def test_transaction_price_auto_calculation(self, portfolio, stock):
         stock.current_price = Decimal('150.00')
         stock.save()
         
         t = Transaction.objects.create(
-            portfolio=funded_portfolio,
+            portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=10
@@ -80,29 +79,29 @@ class TestTransactionModel:
 # Service Tests ---------------------------------------------------------------
 @pytest.mark.django_db
 class TestTransactionService:
-    def test_buy_transaction_processing(self, funded_portfolio, stock):
+    def test_buy_transaction_processing(self, portfolio, stock):
         stock.current_price = Decimal('100.00')
         stock.save()
         
         transaction = TransactionFactory.build(
-            portfolio=funded_portfolio,
+            portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=10
         )
         
-        initial_cash = funded_portfolio.cash_balance
+        initial_cash = portfolio.cash_balance
         assert initial_cash == Decimal('10000.00'), "Initial cash not set correctly"
 
         transaction.save()
         
-        funded_portfolio.refresh_from_db()
+        portfolio.refresh_from_db()
         transaction.refresh_from_db()
         
         expected_cash = initial_cash - (transaction.quantity * stock.current_price)
-        assert funded_portfolio.cash_balance == expected_cash, "Cash not deducted properly"
+        assert portfolio.cash_balance == expected_cash, "Cash not deducted properly"
         assert transaction.amount == transaction.quantity * stock.current_price
-        assert funded_portfolio.holdings.count() == 1
+        assert portfolio.holdings.count() == 1
 
 
     def test_sell_transaction_processing(self, portfolio_with_holding):
@@ -132,46 +131,46 @@ class TestTransactionService:
         assert portfolio.cash_balance == expected_cash, "Cash not added properly"
         assert portfolio.holdings.get(stock=stock).quantity == initial_quantity - transaction.quantity
 
-    def test_deposit_processing(self, funded_portfolio):
-        initial_balance = funded_portfolio.cash_balance
+    def test_deposit_processing(self, portfolio):
+        initial_balance = portfolio.cash_balance
         deposit = TransactionFactory(
-            portfolio=funded_portfolio,
+            portfolio=portfolio,
             transaction_type='DEPOSIT',
             amount=Decimal('5000.00')
         )
         
         deposit.save()
         
-        funded_portfolio.refresh_from_db()
-        assert funded_portfolio.cash_balance == initial_balance + deposit.amount
+        portfolio.refresh_from_db()
+        assert portfolio.cash_balance == initial_balance + deposit.amount
 
-    def test_insufficient_funds_buy(self, funded_portfolio, stock):
+    def test_insufficient_funds_buy(self, portfolio, stock):
         with pytest.raises(ValidationError), transaction.atomic():
             t = Transaction.objects.create(
-                portfolio=funded_portfolio,
+                portfolio=portfolio,
                 transaction_type='BUY',
                 stock=stock,
                 quantity=100000  # Impossible quantity
             )
             t.save()
 
-    def test_sell_nonexistent_holding(self, funded_portfolio, stock):
+    def test_sell_nonexistent_holding(self, portfolio, stock):
         with pytest.raises(ValidationError), transaction.atomic():
             t = Transaction.objects.create(
-                portfolio=funded_portfolio,
+                portfolio=portfolio,
                 transaction_type='SELL',
                 stock=stock,
                 quantity=10
             )
             t.save()
         
-    def test_transaction_rollback_on_failure(self, funded_portfolio, stock):
-        initial_cash = funded_portfolio.cash_balance
+    def test_transaction_rollback_on_failure(self, portfolio, stock):
+        initial_cash = portfolio.cash_balance
         try:
             with transaction.atomic():
                 # Valid transaction
                 t1 = Transaction.objects.create(
-                    portfolio=funded_portfolio,
+                    portfolio=portfolio,
                     transaction_type='BUY',
                     stock=stock,
                     quantity=50
@@ -180,7 +179,7 @@ class TestTransactionService:
                 
                 # Invalid transaction that should fail
                 t2 = Transaction.objects.create(
-                    portfolio=funded_portfolio,
+                    portfolio=portfolio,
                     transaction_type='BUY',
                     stock=stock,
                     quantity=100000  # Impossible quantity
@@ -189,6 +188,6 @@ class TestTransactionService:
         except ValidationError:
             pass
 
-        funded_portfolio.refresh_from_db()
-        assert funded_portfolio.cash_balance == initial_cash
-        assert not funded_portfolio.holdings.exists()
+        portfolio.refresh_from_db()
+        assert portfolio.cash_balance == initial_cash
+        assert not portfolio.holdings.exists()

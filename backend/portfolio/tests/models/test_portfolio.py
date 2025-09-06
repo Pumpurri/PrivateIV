@@ -177,10 +177,10 @@ class TestPortfolioValuation:
             portfolio.full_clean()
             portfolio.save()
 
-    def test_insufficient_funds_buy(self, funded_portfolio, stock):
+    def test_insufficient_funds_buy(self, portfolio, stock):
         with pytest.raises(ValidationError):
             transaction = Transaction(
-                portfolio=funded_portfolio,
+                portfolio=portfolio,
                 transaction_type=Transaction.TransactionType.BUY,
                 stock=stock,
                 quantity=1000,
@@ -219,12 +219,12 @@ class TestPortfolioValuation:
         portfolio.adjust_cash(Decimal('0.009'))
         assert portfolio.cash_balance == Decimal('0.01')
 
-    def test_transaction_auto_amount_calculation(self, funded_portfolio, stock):
+    def test_transaction_auto_amount_calculation(self, portfolio, stock):
         stock.current_price = Decimal('150.00')
         stock.save()
         
         transaction = Transaction.objects.create(
-            portfolio=funded_portfolio,
+            portfolio=portfolio,
             transaction_type=Transaction.TransactionType.BUY,
             stock=stock,
             quantity=10
