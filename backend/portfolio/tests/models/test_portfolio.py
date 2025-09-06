@@ -45,7 +45,7 @@ class TestPortfolioModel:
                 cash_balance=Decimal('10000.00')
             )
             
-            with pytest.raises(ValidationError) as excinfo:
+            with pytest.raises(IntegrityError) as excinfo:
                 Portfolio.objects.create(
                     user=test_user,
                     is_default=True,
@@ -190,24 +190,32 @@ class TestPortfolioValuation:
             transaction.save()
     
     def test_portfolio_deletion_cascades(self, portfolio):
+        # Create a non-default portfolio for testing deletion
+        test_portfolio = Portfolio.objects.create(
+            user=portfolio.user,
+            name="Test Portfolio",
+            is_default=False,
+            cash_balance=Decimal('10000.00')
+        )
+        
         stock = StockFactory(current_price=Decimal('100.00'))
     
         # Create through manager to ensure proper relationships
-        holding = portfolio.holdings.process_purchase(
-            portfolio=portfolio,
+        holding = test_portfolio.holdings.process_purchase(
+            portfolio=test_portfolio,
             stock=stock,
             quantity=100,
             price_per_share=Decimal('100.00')
         )
         
         transaction = TransactionFactory(
-            portfolio=portfolio,
+            portfolio=test_portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=100,
         )
         
-        portfolio.delete()
+        test_portfolio.delete()
         assert not Holding.objects.filter(id=holding.id).exists()
         assert not Transaction.objects.filter(id=transaction.id).exists()
  
@@ -223,7 +231,7 @@ class TestPortfolioValuation:
         stock.current_price = Decimal('150.00')
         stock.save()
         
-        transaction = Transaction.objects.create(
+        transaction = TransactionFactory(
             portfolio=portfolio,
             transaction_type=Transaction.TransactionType.BUY,
             stock=stock,

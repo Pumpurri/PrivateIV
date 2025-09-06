@@ -29,6 +29,9 @@ class TransactionService:
             handler(transaction)
             transaction.save()
             
+            # Post-save processing (like RealizedPNL creation)
+            cls._post_process_transaction(transaction)
+            
             return transaction
 
 
@@ -110,7 +113,10 @@ class TransactionService:
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
         
-        holding = portfolio.holdings.get(stock=stock)
+        try:
+            holding = portfolio.holdings.get(stock=stock)
+        except Holding.DoesNotExist:
+            raise ValidationError("Cannot sell stock not held in portfolio")
         pnl_value = (current_price - holding.average_purchase_price) * quantity
         
         portfolio.holdings.process_sale(
@@ -120,15 +126,11 @@ class TransactionService:
         )
         portfolio.adjust_cash(total_revenue)
         
-        RealizedPNL.objects.create(
-            portfolio=portfolio,
-            transaction=transaction,
-            stock=stock,
-            quantity=quantity,
-            purchase_price=holding.average_purchase_price,
-            sell_price=current_price,
-            pnl=pnl_value
-        )
+        # Store PNL data for post-processing
+        transaction._pnl_data = {
+            'holding_average_price': holding.average_purchase_price,
+            'pnl_value': pnl_value
+        }
             
         transaction.executed_price = current_price
         transaction.amount = total_revenue
@@ -199,6 +201,22 @@ class TransactionService:
         if amount <= Decimal('0'):
             raise ValidationError(f"Invalid amount: {amount}")
         return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @classmethod
+    def _post_process_transaction(cls, transaction):
+        """Post-save processing for transactions"""
+        if transaction.transaction_type == Transaction.TransactionType.SELL and hasattr(transaction, '_pnl_data'):
+            # Create RealizedPNL after transaction is saved
+            pnl_data = transaction._pnl_data
+            RealizedPNL.objects.create(
+                portfolio=transaction.portfolio,
+                transaction=transaction,
+                stock=transaction.stock,
+                quantity=transaction.quantity,
+                purchase_price=pnl_data['holding_average_price'],
+                sell_price=transaction.executed_price,
+                pnl=pnl_data['pnl_value']
+            )
 
     @classmethod
     def _notify_ops_team(cls, transaction, error_msg):

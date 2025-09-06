@@ -1,7 +1,7 @@
 import pytest
 from decimal import Decimal
 from django.core.exceptions import ValidationError
-from portfolio.models import RealizedPNL
+from portfolio.models import RealizedPNL, Portfolio
 from portfolio.tests.conftest import portfolio_with_holding
 from portfolio.tests.factories import TransactionFactory
 
@@ -41,10 +41,41 @@ class TestRealizedPNLModel:
         with pytest.raises(ValidationError):
             pnl.save()
 
-    def test_cascade_deletion(self, sell_transaction):
+    def test_cascade_deletion(self):
         """Test proper deletion constraints"""
-        portfolio = sell_transaction.portfolio
-        portfolio.delete()
+        # Create a non-default portfolio for testing
+        from users.tests.factories import UserFactory
+        from stocks.tests.factories import StockFactory
+        from portfolio.tests.factories import PortfolioFactory, HoldingFactory
+        
+        user = UserFactory()
+        test_portfolio = PortfolioFactory(
+            user=user,
+            is_default=False,
+            cash_balance=Decimal('10000.00')
+        )
+        stock = StockFactory(current_price=Decimal('100.00'))
+        
+        # Create holding and sell transaction on non-default portfolio
+        holding = HoldingFactory(
+            portfolio=test_portfolio,
+            stock=stock,
+            quantity=100,
+            average_purchase_price=Decimal('50.00')
+        )
+        
+        sell_transaction = TransactionFactory(
+            portfolio=test_portfolio,
+            transaction_type='SELL',
+            stock=stock,
+            quantity=5,
+        )
+        
+        # Verify PNL was created
+        assert RealizedPNL.objects.filter(transaction=sell_transaction).exists()
+        
+        # Delete portfolio and check cascade
+        test_portfolio.delete()
         assert not RealizedPNL.objects.exists()
 
     def test_field_validation_quantity_zero(self, sell_transaction):

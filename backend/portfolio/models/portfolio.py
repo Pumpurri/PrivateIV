@@ -76,6 +76,11 @@ class Portfolio(models.Model):
         """Real-time value using CURRENT prices"""
         return self._calculate_investment_value(timezone.now().date())
     
+    @property  
+    def investment_value(self):
+        """Alias for current_investment_value for backward compatibility"""
+        return self.current_investment_value
+    
     def _calculate_investment_value(self, as_of_date):
         """Internal method for date-aware valuation"""
         if as_of_date == timezone.now().date():
