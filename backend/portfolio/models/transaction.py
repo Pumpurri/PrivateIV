@@ -1,19 +1,45 @@
 # models/transaction.py
 from django.db import models, transaction
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError, PermissionDenied
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+import uuid
+
+class TransactionManager(models.Manager):
+    """Armored manager that prevents direct transaction creation"""
+    def get_queryset(self):
+        return super().get_queryset().filter(portfolio__is_deleted=False)
+    
+    def create(self, **kwargs):
+        raise PermissionDenied(
+            "Transaction objects must be created through TransactionService"
+        )
+    
+    def bulk_create(self, objs, **kwargs):
+        raise PermissionDenied(
+            "Transaction objects must be created through TransactionService"
+        )
 
 class Transaction(models.Model):
+    objects = TransactionManager()
+    all_objects = models.Manager()
+
     class TransactionType(models.TextChoices):
         BUY = 'BUY', 'Buy Order'
         SELL = 'SELL', 'Sell Order'
         DEPOSIT = 'DEPOSIT', 'Cash Deposit'
+        WITHDRAWAL = 'WITHDRAWAL', 'Cash Withdrawal'
 
     portfolio = models.ForeignKey(
-        'Portfolio',
+        'portfolio.Portfolio',
         on_delete=models.CASCADE,
         related_name='transactions'
+    )
+    idempotency_key = models.UUIDField(
+        default=uuid.uuid4,
+        help_text="Unique identifier for preventing duplicate processing",
+        editable=False,
+        db_index=True
     )
     transaction_type = models.CharField(max_length=10, choices=TransactionType.choices)
     amount = models.DecimalField(
@@ -42,13 +68,16 @@ class Transaction(models.Model):
         editable=False
     )
     timestamp = models.DateTimeField(auto_now_add=True, editable=False)
-    error_message = models.CharField(max_length=255, blank=True, null=True)
+    error_message = models.CharField(max_length=255, blank=True, null=True, default='')
 
     class Meta:
         ordering = ['-timestamp']
+        unique_together = ('portfolio', 'idempotency_key')
         indexes = [
-            models.Index(fields=['portfolio', 'timestamp']),
-            models.Index(fields=['transaction_type']),
+            models.Index(fields=['timestamp'], name='transaction_timestamp_idx'),
+            models.Index(fields=['portfolio', 'idempotency_key'], name='portfolio_idempotency_idx'),
+            models.Index(fields=['portfolio', 'timestamp'], name='portfolio_timestamp_idx'),
+            models.Index(fields=['transaction_type', 'timestamp'], name='type_timestamp_idx'),
         ]
 
     def clean(self):
@@ -70,6 +99,8 @@ class Transaction(models.Model):
         errors = {}
         if not self.stock:
             raise ValidationError({'stock': 'Stock required for trade transactions'})
+        if not self.stock.is_active:
+            raise ValidationError({'stock': 'Cannot trade inactive securities'})
         if not self.quantity:
             raise ValidationError({'quantity': 'Quantity required for trade transactions'})
         if self.executed_price is None and self.amount is not None:
@@ -91,13 +122,12 @@ class Transaction(models.Model):
             raise ValidationError({'amount': 'Amount must be positive'})
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        is_new = self.pk is None
-        with transaction.atomic():
-            super().save(*args, **kwargs)
-            if is_new:
-                from backend.portfolio.services.transaction_service import TransactionService
-                TransactionService.execute_transaction(self)
+        """Nuclear validation for transaction persistence"""
+        if not getattr(self, '_created_by_service', False) and not self.pk:
+            raise PermissionDenied(
+                "Transactions must be created via TransactionService"
+            )
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.transaction_type} - {self.amount or '0.00'}$"

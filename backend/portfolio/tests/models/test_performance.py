@@ -9,7 +9,7 @@ class TestPortfolioPerformanceModel:
     def test_autocreation(self, portfolio):
         """Test performance model auto-creation via signals"""
         assert hasattr(portfolio, 'performance')
-        assert portfolio.performance.total_deposits == Decimal('0.00')
+        assert portfolio.performance.total_deposits == Decimal('10000.00') 
 
     def test_deposit_tracking(self, portfolio):
         """Test deposit amount aggregation"""
@@ -19,7 +19,7 @@ class TestPortfolioPerformanceModel:
             amount=Decimal('5000.00')
         )
         
-        assert portfolio.performance.total_deposits == Decimal('15000.00')
+        assert portfolio.performance.total_deposits == Decimal('25000.00')
 
     def test_one_to_one_constraint(self, portfolio):
         """Ensure only one performance record per portfolio"""

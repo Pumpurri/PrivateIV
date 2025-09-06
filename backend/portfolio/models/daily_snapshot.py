@@ -2,7 +2,15 @@ from django.db import models
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 
+class ActiveSnapshotManager(models.Manager):
+    """Filters snapshots for active portfolios"""
+    def get_queryset(self):
+        return super().get_queryset().filter(portfolio__is_deleted=False)
+
 class DailyPortfolioSnapshot(models.Model):
+    objects = ActiveSnapshotManager()
+    all_objects = models.Manager()
+
     portfolio = models.ForeignKey(
         'Portfolio',
         on_delete=models.CASCADE,
@@ -34,7 +42,7 @@ class DailyPortfolioSnapshot(models.Model):
         unique_together = ('portfolio', 'date')
         ordering = ['-date']
         indexes = [
-            models.Index(fields=['portfolio', 'date']),
+            models.Index(fields=['date', 'portfolio'], name='date_portfolio_idx')
         ]
 
     def __str__(self):
