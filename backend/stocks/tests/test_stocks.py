@@ -158,8 +158,9 @@ class TestStockViews:
         """Test stock list endpoint"""
         response = client.get(reverse('stock-list'))
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.data) == 1
-        assert response.data[0]['symbol'] == 'AMZN'
+        assert response.data['count'] == 1
+        assert len(response.data['results']) == 1
+        assert response.data['results'][0]['symbol'] == 'AMZN'
 
     def test_admin_create_stock(self, client, admin_user):
         client.force_authenticate(admin_user)
