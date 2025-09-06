@@ -125,6 +125,7 @@ class SnapshotService:
             return Decimal('0.00'), 'system_error'
         
 
+    @classmethod
     def _get_historical_holdings(cls, portfolio, snapshot_date):
         """Reconstruct portfolio holdings as of snapshot date using transaction history"""
         cache_version_key = f"holdings_version_{portfolio.pk}"

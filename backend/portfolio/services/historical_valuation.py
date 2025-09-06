@@ -27,7 +27,7 @@ class HistoricalValuationService:
         for stock_id, holding in holdings.items():
             price = price_map.get((stock_id, date))
             if price is None:
-                price = cls._get_fallback_price(stock_id, date)
+                price = cls._get_fallback_price(stock_id, date, portfolio)
             total_value += price * holding['quantity']
             
         return total_value + SnapshotService._get_historical_cash(portfolio, date)
