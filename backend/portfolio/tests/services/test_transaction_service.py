@@ -86,23 +86,22 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('50.00')
         stock.save()
 
-        buy = TransactionFactory.build(
+        buy = TransactionFactory(
             portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=100,
-        ).save()
+        )
 
         stock.current_price = Decimal('60.00')
         stock.save()
 
-        sell = TransactionFactory.build(
+        sell = TransactionFactory(
             portfolio=portfolio,
             transaction_type='SELL',
             stock=stock,
             quantity=40,
         )
-        sell.save()
 
         pnl = sell.realized_pnl
         expected = (Decimal('60.00') - Decimal('50.00')) * 40
@@ -112,23 +111,22 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('100.00')
         stock.save()
 
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=50,
-        ).save()
+        )
 
         stock.current_price = Decimal('90.00')
         stock.save()
 
-        sell = TransactionFactory.build(
+        sell = TransactionFactory(
             portfolio=portfolio,
             transaction_type='SELL',
             stock=stock,
             quantity=50,
         )
-        sell.save()
 
         pnl = sell.realized_pnl
         expected = (Decimal('90.00') - Decimal('100.00')) * 50
@@ -138,23 +136,23 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('50.00')
         stock.save()
 
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=10,
-        ).save()
+        )
 
         stock.current_price = Decimal('60.00')
         stock.save()
 
         with pytest.raises(ValidationError):
-            TransactionFactory.build(
+            TransactionFactory(
                 portfolio=portfolio,
                 transaction_type='SELL',
                 stock=stock,
                 quantity=100, 
-            ).save()
+            )
 
         assert not hasattr(portfolio.transactions.last(), 'realized_pnl')
 
@@ -162,33 +160,32 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('50.00')
         stock.save()
 
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio, 
             transaction_type='BUY', 
             stock=stock, 
             quantity=10
-        ).save()
+        )
 
         stock.current_price = Decimal('100.00')
         stock.save()
 
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio, 
             transaction_type='BUY', 
             stock=stock, 
             quantity=10
-        ).save()
+        )
 
         stock.current_price = Decimal('90.00')
         stock.save()
 
-        sell = TransactionFactory.build(
+        sell = TransactionFactory(
             portfolio=portfolio, 
             transaction_type='SELL', 
             stock=stock, 
             quantity=10
         )
-        sell.save()
 
         pnl = sell.realized_pnl
         expected = (Decimal('90.00') - Decimal('75.00')) * 10
@@ -204,23 +201,22 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('100.1234')
         stock.save()
 
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio, 
             transaction_type='BUY', 
             stock=stock, 
             quantity=10
-        ).save()
+        )
 
         stock.current_price = Decimal('150.5678')
         stock.save()
 
-        sell = TransactionFactory.build(
+        sell = TransactionFactory(
             portfolio=portfolio, 
             transaction_type='SELL', 
             stock=stock, 
             quantity=10
         )
-        sell.save()
 
         pnl = sell.realized_pnl
         expected = (stock.current_price - Decimal('100.12')) * 10
@@ -235,23 +231,22 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('100.00')
         stock.save()
 
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio, 
             transaction_type='BUY', 
             stock=stock, 
             quantity=10
-        ).save()
+        )
 
         stock.current_price = Decimal('110.00')
         stock.save()
 
-        sell = TransactionFactory.build(
+        sell = TransactionFactory(
             portfolio=portfolio, 
             transaction_type='SELL', 
             stock=stock, 
             quantity=9
         )
-        sell.save()
 
         assert portfolio.holdings.get(stock=stock).quantity == 1
         assert sell.realized_pnl.pnl == Decimal('90.00')
@@ -259,22 +254,21 @@ class TestTransactionPNLHandling:
     def test_full_sell_removes_holding_and_creates_pnl(self, portfolio, stock):
         stock.current_price = Decimal('80.00')
         stock.save()
-        TransactionFactory.build(
+        TransactionFactory(
             portfolio=portfolio, 
             transaction_type='BUY',
             stock=stock,
             quantity=10
-        ).save()
+        )
 
         stock.current_price = Decimal('100.00')
         stock.save()
-        sell = TransactionFactory.build(
+        sell = TransactionFactory(
             portfolio=portfolio,
             transaction_type='SELL',
             stock=stock,
             quantity=10
         )
-        sell.save()
 
         assert not portfolio.holdings.filter(stock=stock).exists()
         assert sell.realized_pnl.pnl == Decimal('200.00')
