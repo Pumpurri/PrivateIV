@@ -16,5 +16,7 @@ class Stock(models.Model):
 
     def save(self, *args, **kwargs):
         self.symbol = self.symbol.strip().upper()
+        if isinstance(self.current_price, (int, float)):
+            self.current_price = Decimal(str(self.current_price))
         self.current_price = self.current_price.quantize(Decimal('0.01'))
         super().save(*args, **kwargs)
