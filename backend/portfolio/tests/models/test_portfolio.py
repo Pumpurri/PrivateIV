@@ -195,17 +195,17 @@ class TestPortfolioValuation:
             transaction.full_clean()
             transaction.save()
     
-    def test_portfolio_deletion_cascades(self, portfolio):
-        # Create a non-default portfolio for testing deletion
+    def test_portfolio_archive_soft_delete(self, portfolio):
+        # Create a non-default portfolio for testing archival (soft-delete)
         test_portfolio = Portfolio.objects.create(
             user=portfolio.user,
             name="Test Portfolio",
             is_default=False,
             cash_balance=Decimal('10000.00')
         )
-        
+
         stock = StockFactory(current_price=Decimal('100.00'))
-    
+
         # Create through manager to ensure proper relationships
         holding = test_portfolio.holdings.process_purchase(
             portfolio=test_portfolio,
@@ -213,17 +213,28 @@ class TestPortfolioValuation:
             quantity=100,
             price_per_share=Decimal('100.00')
         )
-        
+
         transaction = TransactionFactory(
             portfolio=test_portfolio,
             transaction_type='BUY',
             stock=stock,
             quantity=100,
         )
-        
+
+        # Archive the portfolio
         test_portfolio.delete()
-        assert not Holding.objects.filter(id=holding.id).exists()
-        assert not Transaction.objects.filter(id=transaction.id).exists()
+
+        # Portfolio should be soft-deleted
+        test_portfolio.refresh_from_db()
+        assert test_portfolio.is_deleted is True
+        assert test_portfolio.deleted_at is not None
+
+        # Holdings should be deactivated but retained for audit/history
+        assert Holding.objects.filter(id=holding.id).exists()
+        assert Holding.objects.get(id=holding.id).is_active is False
+
+        # Transactions should remain for historical accuracy (use all_objects to bypass active filter)
+        assert Transaction.all_objects.filter(id=transaction.id).exists()
  
     def test_micro_adjustments(self, portfolio):
         portfolio.cash_balance = Decimal('0.00')
