@@ -1,6 +1,9 @@
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
 from django.shortcuts import get_object_or_404
 from django.db.models import Prefetch
+from django.db import transaction
+from rest_framework.views import APIView
+from rest_framework.response import Response
 
 from portfolio.models import Portfolio, Holding, PortfolioPerformance
 from portfolio.serializers import (
@@ -11,7 +14,7 @@ from portfolio.serializers import (
 )
 
 
-class PortfolioListView(generics.ListAPIView):
+class PortfolioListView(generics.ListCreateAPIView):
     serializer_class = PortfolioSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -19,6 +22,11 @@ class PortfolioListView(generics.ListAPIView):
         return Portfolio.objects.filter(
             user=self.request.user
         ).select_related('performance').prefetch_related('holdings')
+
+    def perform_create(self, serializer):
+        # Always create with current user and cash_balance=0 via model default.
+        # Do not allow clients to set is_default here; selection is via dedicated endpoint.
+        serializer.save(user=self.request.user, is_default=False)
 
 
 class PortfolioDetailView(generics.RetrieveUpdateAPIView):
@@ -70,3 +78,27 @@ class PortfolioPerformanceView(generics.RetrieveAPIView):
             portfolio=portfolio
         )
         return performance
+
+
+class PortfolioSetDefaultView(APIView):
+    """Set a given portfolio as the user's default portfolio."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, portfolio_id):
+        # Ensure the portfolio belongs to the authenticated user
+        portfolio = get_object_or_404(
+            Portfolio.objects.filter(user=request.user, is_deleted=False),
+            pk=portfolio_id
+        )
+        with transaction.atomic():
+            # Lock user's active portfolios to avoid race conditions
+            user_portfolios = Portfolio.objects.select_for_update().filter(
+                user=request.user,
+                is_deleted=False
+            )
+            # Unset current default(s)
+            user_portfolios.update(is_default=False)
+            # Set requested one as default
+            Portfolio.objects.filter(pk=portfolio.pk).update(is_default=True)
+            portfolio.refresh_from_db()
+        return Response({'detail': 'Default portfolio updated', 'portfolio_id': portfolio.id}, status=status.HTTP_200_OK)

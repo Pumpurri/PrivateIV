@@ -59,7 +59,8 @@ class PortfolioSerializer(serializers.ModelSerializer):
             'total_value', 'current_investment_value', 'holdings_count',
             'performance', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['created_at', 'updated_at', 'is_default']
+        # Prevent direct cash manipulation; use transactions instead
+        read_only_fields = ['created_at', 'updated_at', 'is_default', 'cash_balance']
 
     def get_holdings_count(self, obj):
         return obj.holdings.filter(is_active=True).count()
