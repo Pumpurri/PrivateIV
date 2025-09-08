@@ -41,8 +41,8 @@ class TestRealizedPNLModel:
         with pytest.raises(ValidationError):
             pnl.save()
 
-    def test_cascade_deletion(self):
-        """Test proper deletion constraints"""
+    def test_archive_portfolio_keeps_pnl_history(self):
+        """Archiving a portfolio should retain P&L history for auditability"""
         # Create a non-default portfolio for testing
         from users.tests.factories import UserFactory
         from stocks.tests.factories import StockFactory
@@ -74,9 +74,9 @@ class TestRealizedPNLModel:
         # Verify PNL was created
         assert RealizedPNL.objects.filter(transaction=sell_transaction).exists()
         
-        # Delete portfolio and check cascade
+        # Archive (soft-delete) portfolio and verify P&L is retained
         test_portfolio.delete()
-        assert not RealizedPNL.objects.exists()
+        assert RealizedPNL.objects.exists()
 
     def test_field_validation_quantity_zero(self, sell_transaction):
         pnl = RealizedPNL.objects.get(transaction=sell_transaction)

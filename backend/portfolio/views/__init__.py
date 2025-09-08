@@ -7,7 +7,8 @@ from .portfolio_views import (
     PortfolioListView,
     PortfolioDetailView,
     PortfolioHoldingsView,
-    PortfolioPerformanceView
+    PortfolioPerformanceView,
+    PortfolioSetDefaultView,
 )
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     'PortfolioListView',
     'PortfolioDetailView',
     'PortfolioHoldingsView',
-    'PortfolioPerformanceView'
+    'PortfolioPerformanceView',
+    'PortfolioSetDefaultView',
 ]

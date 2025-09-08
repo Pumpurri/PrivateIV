@@ -156,4 +156,3 @@ class Portfolio(models.Model):
                 self.save(update_fields=['is_deleted', 'deleted_at'])
                 self.holdings.update(is_active=False)
 
-        # Do not call super().delete(); the row remains for soft-delete semantics
