@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Stock
+from decimal import Decimal, ROUND_HALF_UP
 
 class StockSerializer(serializers.ModelSerializer):
     class Meta:
@@ -10,4 +11,6 @@ class StockSerializer(serializers.ModelSerializer):
     def validate_current_price(self, value):
         if value < 0:
             raise serializers.ValidationError("Price cannot be negative")
-        return round(value, 2)
+        if not isinstance(value, Decimal):
+            value = Decimal(str(value))
+        return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
