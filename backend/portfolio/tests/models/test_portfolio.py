@@ -51,7 +51,13 @@ class TestPortfolioModel:
                     is_default=True,
                     cash_balance=Decimal('20000.00')
                 )
-            assert 'unique_default_portfolio' in str(excinfo.value)
+            # SQLite and PostgreSQL have different constraint error messages
+            error_msg = str(excinfo.value).lower()
+            assert any(phrase in error_msg for phrase in [
+                'unique_default_portfolio', 
+                'unique constraint failed',
+                'portfolio.user_id, portfolio.is_default'
+            ])
 
     def test_non_default_portfolio_creation(self, user):
         """Test creation of additional non-default portfolios"""
