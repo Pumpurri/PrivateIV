@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from portfolio.models import Portfolio, Holding, PortfolioPerformance
 from stocks.serializers import StockSerializer
+from decimal import Decimal, ROUND_HALF_UP
 
 
 class HoldingSerializer(serializers.ModelSerializer):
@@ -19,9 +20,12 @@ class HoldingSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def get_gain_loss_percentage(self, obj):
-        if obj.average_purchase_price > 0:
-            return round((obj.gain_loss / (obj.average_purchase_price * obj.quantity)) * 100, 2)
-        return 0
+        if obj.average_purchase_price > 0 and obj.quantity:
+            base = (obj.average_purchase_price * Decimal(obj.quantity))
+            if base != 0:
+                pct = (obj.gain_loss / base) * Decimal('100')
+                return pct.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        return Decimal('0.00')
 
 
 class PortfolioPerformanceSerializer(serializers.ModelSerializer):
@@ -36,9 +40,10 @@ class PortfolioPerformanceSerializer(serializers.ModelSerializer):
         read_only_fields = ['last_updated']
 
     def get_total_return_percentage(self, obj):
-        if obj.total_deposits > 0:
-            return round((obj.time_weighted_return / obj.total_deposits) * 100, 2)
-        return 0
+        if obj.total_deposits and obj.total_deposits > 0:
+            pct = (obj.time_weighted_return / obj.total_deposits) * Decimal('100')
+            return pct.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        return Decimal('0.00')
 
 
 class PortfolioSerializer(serializers.ModelSerializer):
