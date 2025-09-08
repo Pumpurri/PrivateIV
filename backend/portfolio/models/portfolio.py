@@ -114,13 +114,16 @@ class Portfolio(models.Model):
             raise ValidationError("Cash balance cannot be negative.")
 
     def delete(self, using=None, keep_parents=False):
+        if self.is_deleted:
+            return
+
         if self.is_default:
             with transaction.atomic():
                 # Lock all active portfolios for this user during selection
                 portfolios = self.user.portfolios.select_for_update().filter(
                     is_deleted=False
                 )
-                
+
                 # Verify we're still the default (prevent race condition)
                 current_default = portfolios.filter(is_default=True).first()
                 if current_default != self:
@@ -135,7 +138,7 @@ class Portfolio(models.Model):
 
                 # Atomic update of replacement portfolio
                 Portfolio.objects.filter(pk=replacement.pk).update(is_default=True)
-                
+
                 # Refresh instance to verify constraints
                 replacement.refresh_from_db()
 
@@ -143,7 +146,7 @@ class Portfolio(models.Model):
                 self.is_deleted = True
                 self.deleted_at = timezone.now()
                 self.save(update_fields=['is_deleted', 'deleted_at'])
-                
+
                 # Cascade to holdings
                 self.holdings.update(is_active=False)
         else:
@@ -153,5 +156,4 @@ class Portfolio(models.Model):
                 self.save(update_fields=['is_deleted', 'deleted_at'])
                 self.holdings.update(is_active=False)
 
-        # Call super to maintain normal deletion behavior for non-default case
-        super().delete(using=using, keep_parents=keep_parents)
+        # Do not call super().delete(); the row remains for soft-delete semantics
