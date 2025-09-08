@@ -18,10 +18,16 @@ class TransactionListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Transaction.objects.filter(
+        qs = Transaction.objects.filter(
             portfolio__user=self.request.user,
             portfolio__is_deleted=False
         ).select_related('stock', 'portfolio')
+
+        portfolio_id = self.request.query_params.get('portfolio')
+        if portfolio_id:
+            qs = qs.filter(portfolio_id=portfolio_id)
+
+        return qs
 
 
 class TransactionCreateView(generics.CreateAPIView):
