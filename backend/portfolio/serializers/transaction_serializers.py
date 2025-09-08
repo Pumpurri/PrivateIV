@@ -3,7 +3,7 @@ from portfolio.models import Transaction
 from stocks.models import Stock
 
 class TransactionSerializer(serializers.ModelSerializer):
-    portfolio_id = serializers.UUIDField(source='portfolio.id', read_only=True)
+    portfolio_id = serializers.IntegerField(source='portfolio.id', read_only=True)
     idempotency_key = serializers.UUIDField(required=True)
     transaction_type_display = serializers.SerializerMethodField()
     stock_symbol = serializers.CharField(source='stock.symbol', read_only=True)

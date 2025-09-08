@@ -136,18 +136,19 @@ class Portfolio(models.Model):
                         "You must create another portfolio before deleting the default one."
                     )
 
-                # Atomic update of replacement portfolio
+                # First unset current default to satisfy unique constraint
+                self.is_default = False
+                self.save(update_fields=['is_default'])
+
+                # Then set replacement as default
                 Portfolio.objects.filter(pk=replacement.pk).update(is_default=True)
 
-                # Refresh instance to verify constraints
-                replacement.refresh_from_db()
-
-                # Mark self for deletion
+                # Mark self archived (soft-delete)
                 self.is_deleted = True
                 self.deleted_at = timezone.now()
                 self.save(update_fields=['is_deleted', 'deleted_at'])
 
-                # Cascade to holdings
+                # Deactivate holdings
                 self.holdings.update(is_active=False)
         else:
             with transaction.atomic():
@@ -155,4 +156,3 @@ class Portfolio(models.Model):
                 self.deleted_at = timezone.now()
                 self.save(update_fields=['is_deleted', 'deleted_at'])
                 self.holdings.update(is_active=False)
-
