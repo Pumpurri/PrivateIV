@@ -25,20 +25,19 @@ class HoldingSerializer(serializers.ModelSerializer):
 
 
 class PortfolioPerformanceSerializer(serializers.ModelSerializer):
-    total_return = serializers.DecimalField(max_digits=10, decimal_places=4, read_only=True)
     total_return_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = PortfolioPerformance
         fields = [
-            'total_deposits', 'total_withdrawals', 'total_return',
-            'total_return_percentage', 'updated_at'
+            'total_deposits', 'total_withdrawals', 'time_weighted_return',
+            'total_return_percentage', 'last_updated'
         ]
-        read_only_fields = ['updated_at']
+        read_only_fields = ['last_updated']
 
     def get_total_return_percentage(self, obj):
         if obj.total_deposits > 0:
-            return round((obj.total_return / obj.total_deposits) * 100, 2)
+            return round((obj.time_weighted_return / obj.total_deposits) * 100, 2)
         return 0
 
 
