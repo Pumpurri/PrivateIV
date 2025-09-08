@@ -10,6 +10,7 @@ from portfolio.views import (
     PortfolioDetailView,
     PortfolioHoldingsView,
     PortfolioPerformanceView,
+    PortfolioSetDefaultView,
 )
 
 urlpatterns = [
@@ -18,6 +19,7 @@ urlpatterns = [
     path('portfolios/<int:pk>/', PortfolioDetailView.as_view(), name='portfolio-detail'),
     path('portfolios/<int:portfolio_id>/holdings/', PortfolioHoldingsView.as_view(), name='portfolio-holdings'),
     path('portfolios/<int:portfolio_id>/performance/', PortfolioPerformanceView.as_view(), name='portfolio-performance'),
+    path('portfolios/<int:portfolio_id>/set-default/', PortfolioSetDefaultView.as_view(), name='portfolio-set-default'),
     
     # Transaction endpoints
     path('transactions/', TransactionListView.as_view(), name='transaction-list'),
