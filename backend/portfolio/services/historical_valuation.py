@@ -5,7 +5,6 @@ from django.db import models, transaction
 from django.db.models import (
     Case, When, F, Value, DurationField, IntegerField, Sum, Avg, ExpressionWrapper
 )
-from django.core.exceptions import FieldDoesNotExist
 from portfolio.models.historical_price import HistoricalStockPrice
 from portfolio.services.snapshot_service import SnapshotService
 from stocks.models import Stock
@@ -95,22 +94,7 @@ class HistoricalValuationService:
             logger.warning(f"Using global VWAP for {stock.symbol} on {date}")
             return vwap.quantize(Decimal('0.01'))
 
-        # Tier 4: Sector-based fallback (requires sector data)
-        try:
-            sector_avg = HistoricalStockPrice.objects.filter(
-                stock__sector=stock.sector,  # Assumes sector field on Stock model
-                date=date
-            ).aggregate(
-                avg_price=Avg('price')
-            )['avg_price']
-            
-            if sector_avg:
-                logger.warning(f"Using sector average for {stock.symbol} ({stock.sector}) on {date}")
-                return sector_avg.quantize(Decimal('0.01'))
-        except FieldDoesNotExist:
-            pass  # Sector field not implemented
-
-        # Tier 5: Volatility-adjusted moving average
+        # Tier 4: Volatility-adjusted moving average
         try:
             ma_window = 30
             moving_avg = HistoricalStockPrice.objects.filter(
