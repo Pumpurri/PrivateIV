@@ -6,7 +6,9 @@ class Stock(models.Model):
     name = models.CharField(max_length=100)
     current_price = models.DecimalField(
         max_digits=10,
-        decimal_places=2
+        decimal_places=2,
+        null=True,
+        blank=True
     )
     is_active = models.BooleanField(default=True)
     last_updated = models.DateTimeField(auto_now=True)
@@ -16,7 +18,8 @@ class Stock(models.Model):
 
     def save(self, *args, **kwargs):
         self.symbol = self.symbol.strip().upper()
-        if isinstance(self.current_price, (int, float)):
-            self.current_price = Decimal(str(self.current_price))
-        self.current_price = self.current_price.quantize(Decimal('0.01'))
+        if self.current_price is not None:
+            if isinstance(self.current_price, (int, float)):
+                self.current_price = Decimal(str(self.current_price))
+            self.current_price = self.current_price.quantize(Decimal('0.01'))
         super().save(*args, **kwargs)
