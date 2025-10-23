@@ -9,15 +9,25 @@ class HoldingSerializer(serializers.ModelSerializer):
     current_value = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     gain_loss = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     gain_loss_percentage = serializers.SerializerMethodField()
+    cost_basis = serializers.SerializerMethodField()
 
     class Meta:
         model = Holding
         fields = [
-            'id', 'stock', 'quantity', 'average_purchase_price', 
+            'id', 'stock', 'quantity', 'average_purchase_price',
             'current_value', 'gain_loss', 'gain_loss_percentage',
-            'created_at', 'updated_at'
+            'cost_basis', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def get_cost_basis(self, obj):
+        """Total cost in portfolio base currency (already in PEN)
+
+        The holding's average_purchase_price is already in the portfolio's base currency
+        (PEN), having been converted using historical FX rates during purchase.
+        """
+        cost_basis = obj.average_purchase_price * Decimal(obj.quantity)
+        return cost_basis.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     def get_gain_loss_percentage(self, obj):
         if obj.average_purchase_price > 0 and obj.quantity:

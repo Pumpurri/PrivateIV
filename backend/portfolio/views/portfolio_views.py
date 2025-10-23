@@ -1,11 +1,15 @@
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.db.models import Prefetch
 from django.db import transaction
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from portfolio.models import Portfolio, Holding, PortfolioPerformance
+from portfolio.models import Portfolio, Holding, PortfolioPerformance, Transaction
+from portfolio.services.transaction_service import TransactionService
+from decimal import Decimal
+import uuid
 from portfolio.serializers import (
     PortfolioSerializer,
     PortfolioDetailSerializer,
@@ -24,12 +28,29 @@ class PortfolioListView(generics.ListCreateAPIView):
         ).select_related('performance').prefetch_related('holdings')
 
     def perform_create(self, serializer):
-        # Always create with current user and cash_balance=0 via model default.
-        # Do not allow clients to set is_default here; selection is via dedicated endpoint.
-        serializer.save(user=self.request.user, is_default=False)
+        # Require initial_deposit on creation
+        raw_amount = self.request.data.get('initial_deposit')
+        if raw_amount in (None, ''):
+            raise ValidationError({'initial_deposit': 'Initial deposit is required.'})
+        try:
+            amount = Decimal(str(raw_amount))
+        except Exception:
+            raise ValidationError({'initial_deposit': 'Invalid amount format.'})
+        if amount <= Decimal('0'):
+            raise ValidationError({'initial_deposit': 'Initial deposit must be greater than 0.'})
+
+        # Create portfolio, then create a DEPOSIT transaction to fund it
+        portfolio = serializer.save(user=self.request.user, is_default=False)
+        tx_data = {
+            'portfolio': portfolio,
+            'idempotency_key': uuid.uuid4(),
+            'transaction_type': Transaction.TransactionType.DEPOSIT,
+            'amount': amount,
+        }
+        TransactionService.execute_transaction(tx_data)
 
 
-class PortfolioDetailView(generics.RetrieveUpdateAPIView):
+class PortfolioDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = PortfolioDetailSerializer
     permission_classes = [permissions.IsAuthenticated]
 

@@ -67,6 +67,20 @@ class Transaction(models.Model):
         blank=True,
         editable=False
     )
+    fx_rate = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text='FX rate applied for cross-currency transactions (e.g., 3.464000)'
+    )
+    fx_rate_type = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True,
+        choices=[('compra', 'Compra'), ('venta', 'Venta'), ('mid', 'Mid')],
+        help_text='Type of FX rate used (compra for sell, venta for buy)'
+    )
     timestamp = models.DateTimeField(auto_now_add=True, editable=False)
     error_message = models.CharField(max_length=255, blank=True, null=True, default='')
 

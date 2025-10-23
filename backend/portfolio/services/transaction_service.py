@@ -4,6 +4,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.core.exceptions import ValidationError
 import logging
 from portfolio.models import Transaction, Holding, RealizedPNL, PortfolioPerformance
+from portfolio.services.tracing import span
+from portfolio.services.fx_service import get_fx_rate
+from django.utils import timezone
+from django.utils.timezone import localtime
+from datetime import time
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +16,13 @@ class TransactionService:
     @classmethod
     def execute_transaction(cls, transaction_data):
         """Idempotent transaction processing with duplicate detection"""
-        with db_transaction.atomic(using='default'):
+        with span(
+            "transaction.execute",
+            resource=str(transaction_data.get('transaction_type')),
+            tags={
+                "portfolio.id": getattr(transaction_data.get('portfolio'), 'id', None),
+            }
+        ), db_transaction.atomic(using='default'):
             existing = Transaction.all_objects.filter(
                 portfolio=transaction_data['portfolio'],
                 idempotency_key=transaction_data['idempotency_key']
@@ -26,7 +37,8 @@ class TransactionService:
             transaction.full_clean()
 
             handler = cls._get_transaction_handler(transaction.transaction_type)
-            handler(transaction)
+            with span("transaction.process", resource=transaction.transaction_type):
+                handler(transaction)
             transaction.save()
             
             # Post-save processing (like RealizedPNL creation)
@@ -86,20 +98,38 @@ class TransactionService:
         quantity = cls._validate_quantity(transaction.quantity)
         
         current_price = cls._validate_price(stock.current_price)
-        total_cost = (Decimal(quantity) * current_price).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
+        total_cost_native = (Decimal(quantity) * current_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        # Determine FX session (intraday 11:05–13:29 America/Lima, else cierre)
+        try:
+            now_t = localtime().time()
+        except Exception:
+            now_t = timezone.now().time()
+        cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
+        session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
+
+        # Apply FX only when stock currency differs from portfolio base
+        if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
+            # BUY (PEN -> USD): use 'venta' (bank sells USD)
+            fx = get_fx_rate(timezone.now().date(), portfolio.base_currency, stock.currency, rate_type='venta', session=session)
+            total_cost_base = (total_cost_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            price_per_share_base = (current_price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            transaction.fx_rate = fx
+            transaction.fx_rate_type = 'venta'
+        else:
+            total_cost_base = total_cost_native
+            price_per_share_base = current_price
+        with span("transaction.buy", resource=str(stock.symbol), tags={"quantity": quantity}):
+            portfolio.adjust_cash(-total_cost_base)
+            portfolio.holdings.process_purchase(
+                portfolio=portfolio,
+                stock=stock,
+                quantity=quantity,
+                price_per_share=price_per_share_base
+            )
         
-        portfolio.adjust_cash(-total_cost)
-        portfolio.holdings.process_purchase(
-            portfolio=portfolio,
-            stock=stock,
-            quantity=quantity,
-            price_per_share=current_price
-        )
-        
-        transaction.executed_price = current_price
-        transaction.amount = total_cost
+        transaction.executed_price = current_price  # native
+        transaction.amount = total_cost_native      # keep amount in native for consistency with existing tests
 
     @classmethod
     def _process_sell(cls, transaction):
@@ -109,9 +139,7 @@ class TransactionService:
         quantity = cls._validate_quantity(transaction.quantity)
         
         current_price = cls._validate_price(stock.current_price)
-        total_revenue = (Decimal(quantity) * current_price).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
+        total_revenue_native = (Decimal(quantity) * current_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
         try:
             holding = portfolio.holdings.get(stock=stock)
@@ -119,21 +147,39 @@ class TransactionService:
             raise ValidationError("Cannot sell stock not held in portfolio")
         pnl_value = (current_price - holding.average_purchase_price) * quantity
         
-        portfolio.holdings.process_sale(
-            portfolio=portfolio,
-            stock=stock,
-            quantity=quantity
-        )
-        portfolio.adjust_cash(total_revenue)
-        
+        # Determine FX session
+        try:
+            now_t = localtime().time()
+        except Exception:
+            now_t = timezone.now().time()
+        cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
+        session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
+        if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
+            # SELL (USD -> PEN): use 'compra' (bank buys USD)
+            fx = get_fx_rate(timezone.now().date(), portfolio.base_currency, stock.currency, rate_type='compra', session=session)
+            total_revenue_base = (total_revenue_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            transaction.fx_rate = fx
+            transaction.fx_rate_type = 'compra'
+        else:
+            total_revenue_base = total_revenue_native
+
+        with span("transaction.sell", resource=str(stock.symbol), tags={"quantity": quantity}):
+            portfolio.holdings.process_sale(
+                portfolio=portfolio,
+                stock=stock,
+                quantity=quantity
+            )
+            portfolio.adjust_cash(total_revenue_base)
+
         # Store PNL data for post-processing
         transaction._pnl_data = {
             'holding_average_price': holding.average_purchase_price,
-            'pnl_value': pnl_value
+            'pnl_value': pnl_value,
+            'acquisition_date': holding.created_at  # Track when shares were acquired
         }
             
         transaction.executed_price = current_price
-        transaction.amount = total_revenue
+        transaction.amount = total_revenue_native
 
 
     @classmethod
@@ -147,7 +193,8 @@ class TransactionService:
             portfolio=portfolio
         )
         
-        portfolio.adjust_cash(amount)
+        with span("transaction.deposit", resource=str(portfolio.id), tags={"amount": str(amount)}):
+            portfolio.adjust_cash(amount)
         performance.total_deposits += amount
         performance.save(update_fields=['total_deposits'])
         transaction.executed_price = None
@@ -162,7 +209,8 @@ class TransactionService:
             portfolio=portfolio
         )
         
-        portfolio.adjust_cash(-amount)
+        with span("transaction.withdrawal", resource=str(portfolio.id), tags={"amount": str(amount)}):
+            portfolio.adjust_cash(-amount)
         performance.total_withdrawals += amount
         performance.save(update_fields=['total_withdrawals'])
         transaction.executed_price = None
@@ -215,7 +263,8 @@ class TransactionService:
                 quantity=transaction.quantity,
                 purchase_price=pnl_data['holding_average_price'],
                 sell_price=transaction.executed_price,
-                pnl=pnl_data['pnl_value']
+                pnl=pnl_data['pnl_value'],
+                acquisition_date=pnl_data.get('acquisition_date')  # Save acquisition date for holding period
             )
 
     @classmethod

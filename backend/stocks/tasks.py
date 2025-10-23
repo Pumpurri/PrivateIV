@@ -1,9 +1,12 @@
 from celery import shared_task
-from .models import Stock
 from math import ceil
-from .services import fetch_data_for_companies
 
-companies = [
+from django.utils import timezone
+
+from .models import Stock, StockRefreshStatus
+from .services import fetch_bvl_market_data, fetch_data_for_companies
+
+COMPANIES = [
     {'symbol': 'AAPL', 'name': 'Apple Inc.'},
     {'symbol': 'MSFT', 'name': 'Microsoft Corp.'},
     {'symbol': 'GOOGL', 'name': 'Alphabet Inc.'},
@@ -89,6 +92,7 @@ companies = [
     {'symbol': 'SCHW', 'name': 'Charles Schwab Corp.'},
 ]
 
+
 def batch_companies(companies, batch_size=20):
     """
     Divide the list of companies into batches of a specified size.
@@ -97,9 +101,34 @@ def batch_companies(companies, batch_size=20):
     return [companies[i*batch_size: (i+1)*batch_size] for i in range(num_batches)]
 
 
-def update_stock_prices(data):
+def update_local_stock_prices():
     """
-    Update stock prices in the database based on the fetched data.
+    Fetch and upsert BVL local listings into the Stock table.
+    """
+    try:
+        records = fetch_bvl_market_data()
+    except RuntimeError as exc:
+        print(f"[stocks] Failed to fetch BVL data: {exc}")
+        return
+
+    if not records:
+        return
+
+    for item in records:
+        defaults = {
+            'name': item.get('name') or item.get('symbol'),
+            'current_price': item.get('current_price'),
+            'previous_close': item.get('previous_close'),
+            'currency': item.get('currency') or 'PEN',
+            'company_code': item.get('company_code', ''),
+            'is_local': True,
+        }
+        Stock.objects.update_or_create(symbol=item['symbol'], defaults=defaults)
+
+
+def update_us_stock_prices(data):
+    """
+    Update stock prices in the database based on the fetched US market data.
     """
     if not data:
         return
@@ -111,7 +140,12 @@ def update_stock_prices(data):
 
         Stock.objects.update_or_create(
             symbol=symbol,
-            defaults={'name':name, 'current_price':current_price}
+            defaults={
+                'name': name,
+                'current_price': current_price,
+                'company_code': '',
+                'is_local': False,
+            }
         )
 
 
@@ -120,14 +154,19 @@ def fetch_stock_prices():
     """
     Celery task to fetch and update stock prices for all companies
     """
-    batches = batch_companies(companies, batch_size=20)
+    # TODO: split BVL ingestion into its own scheduled task so it can
+    # continue refreshing after NYSE-specific schedules pause.
+    update_local_stock_prices()
+
+    batches = batch_companies(COMPANIES, batch_size=20)
 
     for batch in batches:
         symbols = ','.join([company['symbol'] for company in batch])
         data = fetch_data_for_companies(symbols)
 
         if data:
-            update_stock_prices(data)
+            update_us_stock_prices(data)
         
         print(f"Updated stock prices for batch: {symbols}")
+    StockRefreshStatus.mark_refreshed(timezone.now())
         

@@ -65,11 +65,62 @@ class Holding(models.Model):
 
     @property
     def current_value(self):
-        return self.quantity * self.stock.current_price
+        """Current value in portfolio base currency"""
+        from portfolio.services.fx_service import get_fx_rate
+        from django.utils import timezone
+        from django.utils.timezone import localtime
+        from datetime import time
+
+        price = self.stock.current_price
+        if price is None:
+            price = Decimal('0.00')
+
+        native_value = Decimal(self.quantity) * price
+
+        # Convert to portfolio base currency if needed
+        if self.stock.currency and self.stock.currency != self.portfolio.base_currency:
+            # Determine session for FX rate
+            try:
+                now_t = localtime().time()
+            except Exception:
+                now_t = timezone.now().time()
+            cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
+            session = 'intraday' if (cmp_t >= time(11,5) and cmp_t < time(13,30)) else 'cierre'
+
+            # Use mid rate (average of compra/venta) for current valuation
+            fx = get_fx_rate(timezone.now().date(), self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
+            return (native_value * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        return native_value
 
     @property
     def gain_loss(self):
-        return (self.stock.current_price - self.average_purchase_price) * self.quantity
+        """Gain/loss in portfolio base currency"""
+        from portfolio.services.fx_service import get_fx_rate
+        from django.utils import timezone
+        from django.utils.timezone import localtime
+        from datetime import time
+
+        price = self.stock.current_price
+        if price is None:
+            price = Decimal('0.00')
+
+        # Convert current price to portfolio base currency if needed
+        if self.stock.currency and self.stock.currency != self.portfolio.base_currency:
+            try:
+                now_t = localtime().time()
+            except Exception:
+                now_t = timezone.now().time()
+            cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
+            session = 'intraday' if (cmp_t >= time(11,5) and cmp_t < time(13,30)) else 'cierre'
+
+            fx = get_fx_rate(timezone.now().date(), self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
+            price_base = (price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        else:
+            price_base = price
+
+        # average_purchase_price is already in base currency (PEN)
+        return (price_base - self.average_purchase_price) * Decimal(self.quantity)
 
     class Meta:
         unique_together = ('portfolio', 'stock')
