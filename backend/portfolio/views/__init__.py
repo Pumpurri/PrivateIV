@@ -10,14 +10,26 @@ from .portfolio_views import (
     PortfolioPerformanceView,
     PortfolioSetDefaultView,
 )
+from .dashboard_views import (
+    DashboardView,
+    PortfolioOverviewView,
+)
+from .fx_views import (
+    FXRateView,
+)
+from .realized_views import PortfolioRealizedView
 
 __all__ = [
     'TransactionListView',
-    'TransactionCreateView', 
+    'TransactionCreateView',
     'TransactionDetailView',
     'PortfolioListView',
     'PortfolioDetailView',
     'PortfolioHoldingsView',
     'PortfolioPerformanceView',
     'PortfolioSetDefaultView',
+    'DashboardView',
+    'PortfolioOverviewView',
+    'FXRateView',
+    'PortfolioRealizedView',
 ]

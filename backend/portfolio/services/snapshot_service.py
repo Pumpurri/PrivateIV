@@ -10,7 +10,9 @@ from portfolio.models.transaction import Transaction
 from django.db.models import Case, When, F, Value, IntegerField
 from stocks.models import Stock
 from portfolio.models.holding_snapshot import HoldingSnapshot
+from portfolio.services.fx_service import get_fx_rate
 from django.core.cache import cache
+from portfolio.services.tracing import span
 
 logger = logging.getLogger(__name__)
 
@@ -210,14 +212,14 @@ class SnapshotService:
         """Creates daily snapshot with robust error handling and retries."""
         from portfolio.models.portfolio import Portfolio
         snapshot_date = date or timezone.now().date()
-        with transaction.atomic():
+        with span("snapshot.daily", resource=str(portfolio.pk), tags={"date": str(snapshot_date)}), transaction.atomic():
             try:
                 locked_portfolio = Portfolio.objects.select_for_update().get(pk=portfolio.pk)
                 
                 # Get historical holdings as of snapshot date
                 historical_holdings = cls._get_historical_holdings(locked_portfolio, snapshot_date)
                 
-                # Calculate investment value and create holding snapshots
+                # Calculate investment value (in base currency) and create holding snapshots
                 investment_value = Decimal('0.00')
                 holding_snapshots = []
                 
@@ -226,8 +228,18 @@ class SnapshotService:
                     price, source = cls._get_historical_price(
                         stock_id, snapshot_date, locked_portfolio
                     )
-                    stock_value = price * holding['quantity']
-                    investment_value += stock_value
+                    native_value = price * holding['quantity']
+                    # Convert to portfolio base currency
+                    # Historical snapshots should use cierre and mid (estimate) for USD->PEN valuation
+                    rate = get_fx_rate(
+                        snapshot_date,
+                        locked_portfolio.base_currency,
+                        stock.currency,
+                        rate_type='mid',
+                        session='cierre'
+                    )
+                    stock_value_base = (native_value * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    investment_value += stock_value_base
                     
                     holding_snapshots.append(
                         HoldingSnapshot(
@@ -236,7 +248,8 @@ class SnapshotService:
                             date=snapshot_date,
                             quantity=holding['quantity'],
                             average_purchase_price=holding['average_price'],
-                            total_value=stock_value
+                            # Store base-currency value to keep totals additive
+                            total_value=stock_value_base
                         )
                     )
 
@@ -250,9 +263,10 @@ class SnapshotService:
                 HoldingSnapshot.objects.bulk_create(holding_snapshots)
 
                 # Calculate cash balance and deposits
+                # Note: historical_cash is assumed to be in portfolio base currency
                 historical_cash = cls._get_historical_cash(locked_portfolio, snapshot_date)
                 historical_deposits = cls._get_historical_deposits(locked_portfolio, snapshot_date)
-                total_value = historical_cash + investment_value
+                total_value = (historical_cash + investment_value).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
                 # Retry logic for portfolio snapshot
                 max_retries = 3

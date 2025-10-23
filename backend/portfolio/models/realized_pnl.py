@@ -34,6 +34,11 @@ class RealizedPNL(models.Model):
         decimal_places=2,
         help_text="Realized profit/loss (positive for gains)"
     )
+    acquisition_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Date when the shares were originally acquired (for holding period calculation)"
+    )
     realized_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -53,8 +58,8 @@ class RealizedPNL(models.Model):
         """Prevent modifications to existing RealizedPNL records"""
         if self.pk:
             original = RealizedPNL.objects.get(pk=self.pk)
-            for field in ['portfolio', 'transaction', 'stock', 'quantity', 
-                        'purchase_price', 'sell_price', 'pnl']:
+            for field in ['portfolio', 'transaction', 'stock', 'quantity',
+                        'purchase_price', 'sell_price', 'pnl', 'acquisition_date']:
                 if getattr(self, field) != getattr(original, field):
                     raise ValidationError("RealizedPNL records are immutable.")
 

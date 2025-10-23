@@ -26,6 +26,8 @@ class TransactionSerializer(serializers.ModelSerializer):
             'quantity',
             'executed_price',
             'amount',
+            'fx_rate',
+            'fx_rate_type',
             'timestamp',
             'portfolio_id',
             'idempotency_key',
@@ -36,16 +38,22 @@ class TransactionSerializer(serializers.ModelSerializer):
             'stock_symbol',
             'stock_name',
             'executed_price',
+            'fx_rate',
+            'fx_rate_type',
             'timestamp',
             'portfolio_id',
         ]
-        extra_kwargs = {
-            'transaction_type': {'write_only': True},
-            'amount': {'write_only': True}
-        }
+        # 'transaction_type' is readable so clients can filter on it
 
     def get_transaction_type_display(self, obj):
-        return obj.get_transaction_type_display()
+        # Localize transaction type to Spanish labels
+        mapping = {
+            Transaction.TransactionType.BUY: 'Compra',
+            Transaction.TransactionType.SELL: 'Venta',
+            Transaction.TransactionType.DEPOSIT: 'Depósito',
+            Transaction.TransactionType.WITHDRAWAL: 'Retiro',
+        }
+        return mapping.get(obj.transaction_type, obj.get_transaction_type_display())
 
     def validate(self, data):
         """Enterprise-grade validation for transaction integrity"""

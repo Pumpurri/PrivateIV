@@ -7,6 +7,7 @@ from django.db.models import (
 )
 from portfolio.models.historical_price import HistoricalStockPrice
 from portfolio.services.snapshot_service import SnapshotService
+from portfolio.services.fx_service import get_fx_rate
 from stocks.models import Stock
 from portfolio.models.transaction import Transaction
 
@@ -27,9 +28,19 @@ class HistoricalValuationService:
             price = price_map.get((stock_id, date))
             if price is None:
                 price = cls._get_fallback_price(stock_id, date, portfolio)
-            total_value += price * holding['quantity']
+            # Convert native price to portfolio base currency
+            try:
+                stock = Stock.objects.get(pk=stock_id)
+                native_value = price * holding['quantity']
+                # Historical valuations prefer cierre (EOD) mid (estimate)
+                rate = get_fx_rate(date, portfolio.base_currency, stock.currency, rate_type='mid', session='cierre')
+                base_value = native_value * rate
+            except Exception:
+                base_value = price * holding['quantity']
+            total_value += base_value
             
-        return total_value + SnapshotService._get_historical_cash(portfolio, date)
+        # Cash assumed in base currency
+        return (total_value + SnapshotService._get_historical_cash(portfolio, date)).quantize(Decimal('0.01'))
 
     @classmethod
     def _get_fallback_price(cls, stock_id, date, portfolio):

@@ -1,0 +1,2 @@
+"""Stocks app management commands."""
+

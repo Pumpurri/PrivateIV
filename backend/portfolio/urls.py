@@ -11,9 +11,18 @@ from portfolio.views import (
     PortfolioHoldingsView,
     PortfolioPerformanceView,
     PortfolioSetDefaultView,
+    DashboardView,
+    PortfolioOverviewView,
+    # FX views
+    FXRateView,
+    PortfolioRealizedView,
 )
 
 urlpatterns = [
+    # Dashboard endpoints
+    path('dashboard/', DashboardView.as_view(), name='dashboard'),
+    path('dashboard/portfolios/<int:portfolio_id>/overview/', PortfolioOverviewView.as_view(), name='dashboard-portfolio-overview'),
+    path('dashboard/portfolios/<int:portfolio_id>/realized/', PortfolioRealizedView.as_view(), name='dashboard-portfolio-realized'),
     # Portfolio endpoints
     path('portfolios/', PortfolioListView.as_view(), name='portfolio-list'),
     path('portfolios/<int:pk>/', PortfolioDetailView.as_view(), name='portfolio-detail'),
@@ -25,4 +34,7 @@ urlpatterns = [
     path('transactions/', TransactionListView.as_view(), name='transaction-list'),
     path('transactions/create/', TransactionCreateView.as_view(), name='transaction-create'),
     path('transactions/<int:pk>/', TransactionDetailView.as_view(), name='transaction-detail'),
+
+    # FX endpoints
+    path('fx-rates/', FXRateView.as_view(), name='fx-rates'),
 ]

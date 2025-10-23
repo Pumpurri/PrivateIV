@@ -4,6 +4,7 @@ from portfolio.services import SnapshotService
 from portfolio.models import Portfolio
 from django.utils import timezone
 from portfolio.services.performance_service import PerformanceCalculator
+from portfolio.services.fx_ingest_service import upsert_latest_from_bcrp
 
 @shared_task
 def create_daily_snapshots():
@@ -26,3 +27,18 @@ def update_all_time_weighted_returns():
             portfolio.performance.save(update_fields=['time_weighted_return'])
         except Exception as e:
             print(f"Failed to update TWR for {portfolio.id}: {e}")
+
+
+@shared_task
+def fx_ingest_latest_auto(mode='auto'):
+    """Fetch latest USD->PEN from BCRP and upsert into FXRate.
+
+    - mode: 'auto' | 'intraday' | 'cierre'
+    Returns a dict with compra/venta used and the saved row details.
+    """
+    try:
+        result = upsert_latest_from_bcrp(mode=mode)
+        return result
+    except Exception as e:
+        # Celery records the exception; return a compact message as well
+        return { 'error': str(e) }
