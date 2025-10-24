@@ -29,6 +29,10 @@ apiClient.interceptors.request.use(
       const csrfToken = getCookie('csrftoken');
       if (csrfToken) {
         config.headers['X-CSRFToken'] = csrfToken;
+      } else {
+        // Debug: log if CSRF token is missing
+        console.warn('[axios] No CSRF token found in cookies for', config.method, config.url);
+        console.warn('[axios] document.cookie:', document.cookie);
       }
     }
     return config;
