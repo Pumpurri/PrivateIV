@@ -134,11 +134,11 @@ def fetch_bvl_market_data(
     return locals_only
 
 
-def fetch_data_for_companies(symbols): 
+def fetch_data_for_companies(symbols):
     """
     Fetch stock data for multiple companies from the FMP API.
     """
-    api_key = os.getenv('API_KEY')
+    api_key = os.getenv('FMP_API')
     url = f'https://financialmodelingprep.com/api/v3/quote/{symbols}/?apikey={api_key}'
 
     try:
