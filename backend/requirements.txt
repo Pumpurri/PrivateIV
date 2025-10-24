@@ -19,6 +19,7 @@ django-extensions==3.2.3
 django-filter==25.1
 django-timezone-field==7.1
 djangorestframework==3.15.2
+dj-database-url==2.1.0
 docker==7.1.0
 factory_boy==3.3.3
 Faker==37.1.0
