@@ -1,33 +1,30 @@
-# Ignore Python virtual environment
-venv/
-__pycache__/
+# Python
 *.pyc
+__pycache__/
+*.py[cod]
+.Python
+venv/
+ENV/
+*.egg-info/
 
-# Ignore Django secret files
+# Django
+*.log
+db.sqlite3
+media/
+staticfiles/
 .env
 
-# Ignore database files
-*.sqlite3
-db.sqlite3
-
-# Ignore node_modules in frontend
-frontend/node_modules/
-
-# Ignore compiled assets
-*.log
-*.out
-*.pid
+# IDEs
+.vscode/
+.idea/
 .DS_Store
 
-# Ignore test/debug artifacts
-.coverage
-erl_crash.dump
-ddtrace/
+# Node
+node_modules/
+frontend/dist/
 
-# Local HTTPS certificates
-*.pem
-*.key
-*.crt
+# Celery
+celerybeat-schedule
 
-ec.py
-code_output.txt
+# Railway
+.railway/

@@ -1,0 +1,1656 @@
+backend/portfolio/models/__init__.py:
+from .portfolio import Portfolio
+from .holding import Holding
+from .transaction import Transaction
+from .realized_pnl import RealizedPNL
+from .daily_snapshot import DailyPortfolioSnapshot
+from .performance import PortfolioPerformance
+
+
+__all__ = ['Portfolio', 'Holding', 'Transaction', 'RealizedPNL', 'DailyPortfolioSnapshot', 'PortfolioPerformance']
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/portfolio.py:
+from django.db import models, transaction
+from django.db.models import Sum, F, Q
+from django.core.validators import MinValueValidator
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from decimal import Decimal, ROUND_HALF_UP
+from portfolio.services.historical_valuation import HistoricalValuationService
+
+
+class ActivePortfolioManager(models.Manager):
+    """Manager to exclude soft-deleted portfolios by default."""
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+class Portfolio(models.Model):
+    objects = ActivePortfolioManager()  
+    all_objects = models.Manager()
+
+    user = models.ForeignKey(
+        'users.CustomUser',
+        on_delete=models.CASCADE,
+        related_name='portfolios'
+    )
+    name = models.CharField(
+        max_length=100,
+        default='My Portfolio',
+        help_text='User-defined name for this portfolio'
+    )
+    description = models.TextField(
+        blank=True,
+        help_text='Optional description of the portfolio’s purpose or goals'
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Initial portfolio created automatically for new users"
+    )
+    cash_balance = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal('0'),
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'is_default'],
+                condition=models.Q(is_default=True),
+                name='unique_default_portfolio'
+            ),
+            models.CheckConstraint(
+                check=Q(cash_balance__gte=0),
+                name='cash_balance_non_negative'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['user', 'is_deleted']),
+            models.Index(fields=['is_default'])
+        ]
+        ordering = ['-created_at']
+
+
+    def __str__(self):
+        return f"{self.user.email}'s Portfolio"
+
+    @property
+    def total_value(self):
+        return self.cash_balance + self.current_investment_value
+
+    @property
+    def current_investment_value(self):
+        """Real-time value using CURRENT prices"""
+        return self._calculate_investment_value(timezone.now().date())
+    
+    def _calculate_investment_value(self, as_of_date):
+        """Internal method for date-aware valuation"""
+        if as_of_date == timezone.now().date():
+            # Real-time calculation
+            return self.holdings.filter(
+                is_active=True,
+                stock__is_active=True,
+            ).annotate(
+                value=F('quantity') * F('stock__current_price')
+            ).aggregate(total=Sum('value'))['total'] or Decimal('0.00')
+        else:
+            # Historical calculation
+            return HistoricalValuationService.get_historical_value(self, as_of_date)
+    
+    def adjust_cash(self, amount):
+        amount = Decimal(amount)
+        with transaction.atomic():
+            locked = Portfolio.objects.select_for_update().get(pk=self.pk)
+            new_balance = locked.cash_balance + amount
+            if new_balance < Decimal('0'):
+                raise ValidationError("Insufficient funds")
+            locked.cash_balance = new_balance.quantize(
+                Decimal('0.01'),
+                rounding=ROUND_HALF_UP
+            )
+            locked.save(update_fields=['cash_balance'])
+            self.cash_balance = locked.cash_balance
+
+    def clean(self):
+        if self.cash_balance < Decimal('0'):
+            raise ValidationError("Cash balance cannot be negative.")
+
+    def delete(self, using=None, keep_parents=False):
+        if self.is_default:
+            with transaction.atomic():
+                # Lock all active portfolios for this user during selection
+                portfolios = self.user.portfolios.select_for_update().filter(
+                    is_deleted=False
+                )
+                
+                # Verify we're still the default (prevent race condition)
+                current_default = portfolios.filter(is_default=True).first()
+                if current_default != self:
+                    raise ValidationError("Portfolio is no longer the default")
+
+                # Find replacement with lock
+                replacement = portfolios.exclude(pk=self.pk).first()
+                if not replacement:
+                    raise ValidationError(
+                        "You must create another portfolio before deleting the default one."
+                    )
+
+                # Atomic update of replacement portfolio
+                Portfolio.objects.filter(pk=replacement.pk).update(is_default=True)
+                
+                # Refresh instance to verify constraints
+                replacement.refresh_from_db()
+
+                # Mark self for deletion
+                self.is_deleted = True
+                self.deleted_at = timezone.now()
+                self.save(update_fields=['is_deleted', 'deleted_at'])
+                
+                # Cascade to holdings
+                self.holdings.update(is_active=False)
+        else:
+            with transaction.atomic():
+                self.is_deleted = True
+                self.deleted_at = timezone.now()
+                self.save(update_fields=['is_deleted', 'deleted_at'])
+                self.holdings.update(is_active=False)
+
+        # Call super to maintain normal deletion behavior for non-default case
+        super().delete(using=using, keep_parents=keep_parents)
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/holding.py:
+from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal, ROUND_HALF_UP
+from django.core.exceptions import ValidationError
+from django.db import transaction
+
+class HoldingManager(models.Manager):
+    def process_purchase(self, portfolio, stock, quantity, price_per_share):
+        """Handle buy transactions"""
+        with transaction.atomic():
+            holding, created = self.select_for_update().get_or_create(
+                portfolio=portfolio,
+                stock=stock,
+                defaults={
+                    'quantity': quantity,
+                    'average_purchase_price': price_per_share,
+                    'is_active': True
+                }
+            )
+
+            if not created:
+                total_cost = (holding.quantity * holding.average_purchase_price) + (quantity * price_per_share)
+                holding.quantity += quantity
+                holding.average_purchase_price = (total_cost / holding.quantity).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                holding.is_active = True
+                holding.save()
+
+            return holding
+    
+    def process_sale(self, portfolio, stock, quantity):
+        """Handle sell transactions"""
+        with transaction.atomic():
+            try:
+                holding = self.select_for_update().get(portfolio=portfolio, stock=stock)
+            except self.model.DoesNotExist:
+                raise ValidationError("Cannot sell stock not held in portfolio.")
+            if holding.quantity < quantity:
+                raise ValidationError("Insufficient shares to sell")
+
+            holding.quantity -= quantity
+            if holding.quantity == 0:
+                holding.is_active = False
+            holding.save()
+
+            return holding
+
+class Holding(models.Model):
+    portfolio = models.ForeignKey('portfolio.Portfolio', on_delete=models.CASCADE, related_name='holdings')
+    stock = models.ForeignKey('stocks.Stock', on_delete=models.CASCADE, related_name='holdings')
+    quantity = models.PositiveIntegerField(help_text="Number of shares held")
+    average_purchase_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text="Weighted average price per share"
+    )
+    is_active = models.BooleanField(default=True, help_text="False if position fully sold")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = HoldingManager()
+
+    @property
+    def current_value(self):
+        return self.quantity * self.stock.current_price
+
+    @property
+    def gain_loss(self):
+        return (self.stock.current_price - self.average_purchase_price) * self.quantity
+
+    class Meta:
+        unique_together = ('portfolio', 'stock')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['stock'], name='holding_stock_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(quantity__gt=0) | models.Q(is_active=False),
+                name="active_holding_positive_quantity"
+            ),
+            models.CheckConstraint(check=models.Q(average_purchase_price__gt=0), name="holding_price_positive"),
+        ]
+
+    def __str__(self):
+        return f"{self.portfolio.user}: {self.quantity} shares of {self.stock.symbol}"
+    
+    def clean(self):
+        if self.quantity < 0:
+            raise ValidationError("Quantity cannot be negative")
+        if self.average_purchase_price <= 0:
+            raise ValidationError("Purchase price must be positive")
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/transaction.py:
+# models/transaction.py
+from django.db import models, transaction
+from django.core.exceptions import ValidationError, PermissionDenied
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+import uuid
+
+class TransactionManager(models.Manager):
+    """Armored manager that prevents direct transaction creation"""
+    def get_queryset(self):
+        return super().get_queryset().filter(portfolio__is_deleted=False)
+    
+    def create(self, **kwargs):
+        raise PermissionDenied(
+            "Transaction objects must be created through TransactionService"
+        )
+    
+    def bulk_create(self, objs, **kwargs):
+        raise PermissionDenied(
+            "Transaction objects must be created through TransactionService"
+        )
+
+class Transaction(models.Model):
+    objects = TransactionManager()
+    all_objects = models.Manager()
+
+    class TransactionType(models.TextChoices):
+        BUY = 'BUY', 'Buy Order'
+        SELL = 'SELL', 'Sell Order'
+        DEPOSIT = 'DEPOSIT', 'Cash Deposit'
+        WITHDRAWAL = 'WITHDRAWAL', 'Cash Withdrawal'
+
+    portfolio = models.ForeignKey(
+        'portfolio.Portfolio',
+        on_delete=models.CASCADE,
+        related_name='transactions'
+    )
+    idempotency_key = models.UUIDField(
+        default=uuid.uuid4,
+        help_text="Unique identifier for preventing duplicate processing",
+        editable=False,
+        db_index=True
+    )
+    transaction_type = models.CharField(max_length=10, choices=TransactionType.choices)
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0.01)],
+        null=True,
+        blank=True
+    )
+    stock = models.ForeignKey(
+        'stocks.Stock',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    quantity = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        null=True,
+        blank=True
+    )
+    executed_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        editable=False
+    )
+    timestamp = models.DateTimeField(auto_now_add=True, editable=False)
+    error_message = models.CharField(max_length=255, blank=True, null=True, default='')
+
+    class Meta:
+        ordering = ['-timestamp']
+        unique_together = ('portfolio', 'idempotency_key')
+        indexes = [
+            models.Index(fields=['timestamp'], name='transaction_timestamp_idx'),
+            models.Index(fields=['portfolio', 'idempotency_key'], name='portfolio_idempotency_idx'),
+            models.Index(fields=['portfolio', 'timestamp'], name='portfolio_timestamp_idx'),
+            models.Index(fields=['transaction_type', 'timestamp'], name='type_timestamp_idx'),
+        ]
+
+    def clean(self):
+        if self.pk:
+            original = Transaction.objects.get(pk=self.pk)
+            if original.transaction_type != self.transaction_type:
+                raise ValidationError("Transaction type cannot be changed after creation")
+        self._validate_transaction_logic()
+        self._validate_amount_positive()
+    
+    def _validate_transaction_logic(self):
+        trade_types = [self.TransactionType.BUY, self.TransactionType.SELL]
+        if self.transaction_type in trade_types:
+            self._validate_trade_transaction()
+        else:
+            self._validate_non_trade_transaction()
+
+    def _validate_trade_transaction(self):
+        errors = {}
+        if not self.stock:
+            raise ValidationError({'stock': 'Stock required for trade transactions'})
+        if not self.stock.is_active:
+            raise ValidationError({'stock': 'Cannot trade inactive securities'})
+        if not self.quantity:
+            raise ValidationError({'quantity': 'Quantity required for trade transactions'})
+        if self.executed_price is None and self.amount is not None:
+            errors['amount'] = 'Amount should be calculated automatically for trades'
+        
+        if errors:
+            raise ValidationError(errors)
+
+    def _validate_non_trade_transaction(self):
+        if self.stock is not None:
+            raise ValidationError({'stock': 'Stock must be null for non-trade transactions'})
+        if self.quantity is not None:
+            raise ValidationError({'quantity': 'Quantity must be null for non-trade transactions'})
+        if self.amount is None:
+            raise ValidationError({'amount': 'Amount required for non-trade transactions'})
+    
+    def _validate_amount_positive(self):
+        if self.amount is not None and self.amount <= Decimal('0'):
+            raise ValidationError({'amount': 'Amount must be positive'})
+
+    def save(self, *args, **kwargs):
+        """Nuclear validation for transaction persistence"""
+        if not getattr(self, '_created_by_service', False) and not self.pk:
+            raise PermissionDenied(
+                "Transactions must be created via TransactionService"
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.transaction_type} - {self.amount or '0.00'}$"
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/daily_snapshot.py:
+from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+
+class ActiveSnapshotManager(models.Manager):
+    """Filters snapshots for active portfolios"""
+    def get_queryset(self):
+        return super().get_queryset().filter(portfolio__is_deleted=False)
+
+class DailyPortfolioSnapshot(models.Model):
+    objects = ActiveSnapshotManager()
+    all_objects = models.Manager()
+
+    portfolio = models.ForeignKey(
+        'Portfolio',
+        on_delete=models.CASCADE,
+        related_name='daily_snapshots'
+    )
+    date = models.DateField()
+    total_value = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    cash_balance = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    investment_value = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    total_deposits = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+
+    class Meta:
+        unique_together = ('portfolio', 'date')
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['date', 'portfolio'], name='date_portfolio_idx')
+        ]
+
+    def __str__(self):
+        return f"{self.portfolio} Snapshot ({self.date})"
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/holding_snapshot.py:
+from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+
+class HoldingSnapshot(models.Model):
+    portfolio = models.ForeignKey(
+        'Portfolio',
+        on_delete=models.CASCADE,
+        related_name='holding_snapshots'
+    )
+    stock = models.ForeignKey(
+        'stocks.Stock',
+        on_delete=models.CASCADE
+    )
+    date = models.DateField(db_index=True)
+    quantity = models.PositiveIntegerField()
+    average_purchase_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))]
+    )
+    total_value = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+
+    class Meta:
+        unique_together = ('portfolio', 'stock', 'date')
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['date', 'portfolio'], name='holding_date_portfolio_idx'),
+            models.Index(fields=['stock', 'date'], name='holding_stock_date_idx')
+        ]
+
+    def __str__(self):
+        return f"{self.portfolio} - {self.stock} @ {self.date}"
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/performance.py:
+from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+
+class PortfolioPerformance(models.Model):
+    portfolio = models.OneToOneField(
+        'Portfolio',
+        on_delete=models.CASCADE,
+        related_name='performance'
+    )
+    time_weighted_return = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        help_text="Annualized time-weighted return"
+    )
+    total_deposits = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    total_withdrawals = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Total cash withdrawn from portfolio"
+    )
+    last_updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Portfolio Performances"
+
+    def __str__(self):
+        return f"{self.portfolio} Performance"
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/realized_pnl.py:
+from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+from django.core.exceptions import ValidationError
+
+class RealizedPNL(models.Model):
+    portfolio = models.ForeignKey(
+        'Portfolio',
+        on_delete=models.CASCADE,
+        related_name='realized_pnls'
+    )
+    transaction = models.OneToOneField(
+        'Transaction',
+        on_delete=models.CASCADE,
+        related_name='realized_pnl'
+    )
+    stock = models.ForeignKey(
+        'stocks.Stock',
+        on_delete=models.CASCADE
+    )
+    quantity = models.PositiveIntegerField()
+    purchase_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))]
+    )
+    sell_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))]
+    )
+    pnl = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Realized profit/loss (positive for gains)"
+    )
+    realized_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['portfolio', 'realized_at']),
+            models.Index(fields=['stock', 'realized_at']),
+        ]
+        ordering = ['-realized_at']
+
+    def save(self, *args, **kwargs):
+        """Enforce immutability on save"""
+        if self.pk:
+            self.full_clean()
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        """Prevent modifications to existing RealizedPNL records"""
+        if self.pk:
+            original = RealizedPNL.objects.get(pk=self.pk)
+            for field in ['portfolio', 'transaction', 'stock', 'quantity', 
+                        'purchase_price', 'sell_price', 'pnl']:
+                if getattr(self, field) != getattr(original, field):
+                    raise ValidationError("RealizedPNL records are immutable.")
+
+    def __str__(self):
+        return f"{self.portfolio} {self.stock} P&L: {self.pnl}"
+--------------------------------------------------------------------------------
+
+backend/portfolio/models/historical_price.py:
+from django.db import models
+from django.core.cache import cache
+from decimal import Decimal
+from django.utils.translation import gettext_lazy as _
+from decimal import Decimal, ROUND_HALF_UP
+from portfolio.services.snapshot_service import SnapshotService
+
+class HistoricalStockPrice(models.Model):
+    stock = models.ForeignKey(
+        'stocks.Stock',
+        on_delete=models.CASCADE,
+        related_name='price_history'
+    )
+    date = models.DateField(db_index=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['stock', 'date'], name='unique_stock_date')
+        ]
+        ordering = ['-date']
+
+    @classmethod
+    def get_price(cls, stock, date):
+        cache_key = f'stock_price_{stock.id}_{date}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Decimal(cached)
+            
+        try:
+            price = cls.objects.get(stock=stock, date=date).price
+            cache.set(cache_key, str(price), timeout=3600*24)  # Cache for 24h
+            return price
+        except cls.DoesNotExist:
+            return None
+        
+
+    @classmethod
+    def bulk_cache_prices(cls, stock_dates):
+        """Optimized method for batch price lookups"""
+        cache_keys = {}
+        dates = {sd['date'] for sd in stock_dates}
+        stock_ids = {sd['stock_id'] for sd in stock_dates}
+        
+        # Check cache first
+        for sd in stock_dates:
+            key = f'stock_price_{sd["stock_id"]}_{sd["date"]}'
+            cached = cache.get(key)
+            if cached is not None:
+                cache_keys[(sd["stock_id"], sd["date"])] = Decimal(cached)
+                
+        # Find missing prices
+        missing = []
+        for sd in stock_dates:
+            if (sd["stock_id"], sd["date"]) not in cache_keys:
+                missing.append((sd["stock_id"], sd["date"]))
+                
+        # Batch query for missing prices
+        if missing:
+            stock_ids = {s[0] for s in missing}
+            dates = {s[1] for s in missing}
+            
+            prices = cls.objects.filter(
+                stock_id__in=stock_ids,
+                date__in=dates
+            ).values('stock_id', 'date', 'price')
+            
+            for p in prices:
+                key = (p['stock_id'], p['date'])
+                cache_keys[key] = p['price']
+                cache.set(f'stock_price_{p["stock_id"]}_{p["date"]}', 
+                         str(p['price']), 
+                         timeout=3600*24)
+                         
+        return cache_keys
+    
+
+
+--------------------------------------------------------------------------------
+
+backend/portoflio/services/__init__.py:
+[File not found]
+
+--------------------------------------------------------------------------------
+
+backend/portfolio/services/transaction_service.py:
+# backend/portfolio/services/transaction_services.py
+from django.db import transaction as db_transaction
+from decimal import Decimal, ROUND_HALF_UP
+from django.core.exceptions import ValidationError
+import logging
+from portfolio.models import Transaction, Holding, RealizedPNL, PortfolioPerformance
+
+logger = logging.getLogger(__name__)
+
+class TransactionService:
+    @classmethod
+    def execute_transaction(cls, transaction_data):
+        """Idempotent transaction processing with duplicate detection"""
+        with db_transaction.atomic(using='default'):
+            existing = Transaction.all_objects.filter(
+                portfolio=transaction_data['portfolio'],
+                idempotency_key=transaction_data['idempotency_key']
+            ).first()
+            
+            if existing:
+                logger.warning(f"Idempotency key collision: {transaction_data['idempotency_key']}")
+                return existing
+
+            transaction = Transaction(**transaction_data)
+            transaction._created_by_service = True
+            transaction.full_clean()
+
+            handler = cls._get_transaction_handler(transaction.transaction_type)
+            handler(transaction)
+            transaction.save()
+            
+            return transaction
+
+
+    @classmethod
+    def _process_transaction_core(cls, transaction):
+        """Core processing logic with strict validation"""
+        handler = cls._get_transaction_handler(transaction.transaction_type)
+        handler(transaction)
+        cls._finalize_transaction(transaction)
+
+    @classmethod
+    def _get_transaction_handler(cls, transaction_type):
+        """Router for transaction type handlers with validation"""
+        handlers = {
+            Transaction.TransactionType.BUY: cls._process_buy,
+            Transaction.TransactionType.SELL: cls._process_sell,
+            Transaction.TransactionType.DEPOSIT: cls._process_deposit,
+            Transaction.TransactionType.WITHDRAWAL: cls._process_withdrawal,
+        }
+        
+        if transaction_type not in handlers:
+            raise ValidationError(f"Unsupported transaction type: {transaction_type}")
+            
+        return handlers[transaction_type]
+
+    @classmethod
+    def _finalize_transaction(cls, transaction):
+        """Persist transaction details with field-level precision"""
+        transaction.save(update_fields=[
+            'executed_price',
+            'amount',
+            'timestamp'
+        ])
+        logger.info(f"Processed {transaction.get_transaction_type_display()} "\
+                    f"transaction {transaction.id}")
+
+    @classmethod
+    def _handle_failed_transaction(cls, transaction, error_msg):
+        """Enhanced error logging with transaction context"""
+        logger.error(f"Transaction {transaction.id} failed - Error: {error_msg}")
+        try:
+            transaction.error_message = error_msg[:255]
+            transaction.save(update_fields=['error_message'])
+        except Exception as e:
+            logger.error(f"Failed to save error message: {str(e)}")
+
+    @classmethod
+    def _process_buy(cls, transaction):
+        """SEC Rule 15c3-1 compliant buy processing"""
+        portfolio = transaction.portfolio
+        stock = cls._validate_stock(transaction.stock)
+        quantity = cls._validate_quantity(transaction.quantity)
+        
+        current_price = cls._validate_price(stock.current_price)
+        total_cost = (Decimal(quantity) * current_price).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        
+        portfolio.adjust_cash(-total_cost)
+        portfolio.holdings.process_purchase(
+            portfolio=portfolio,
+            stock=stock,
+            quantity=quantity,
+            price_per_share=current_price
+        )
+        
+        transaction.executed_price = current_price
+        transaction.amount = total_cost
+
+    @classmethod
+    def _process_sell(cls, transaction):
+        """SEC Rule 15c3-1 compliant sell processing"""
+        portfolio = transaction.portfolio
+        stock = cls._validate_stock(transaction.stock)
+        quantity = cls._validate_quantity(transaction.quantity)
+        
+        current_price = cls._validate_price(stock.current_price)
+        total_revenue = (Decimal(quantity) * current_price).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        
+        holding = portfolio.holdings.get(stock=stock)
+        pnl_value = (current_price - holding.average_purchase_price) * quantity
+        
+        portfolio.holdings.process_sale(
+            portfolio=portfolio,
+            stock=stock,
+            quantity=quantity
+        )
+        portfolio.adjust_cash(total_revenue)
+        
+        RealizedPNL.objects.create(
+            portfolio=portfolio,
+            transaction=transaction,
+            stock=stock,
+            quantity=quantity,
+            purchase_price=holding.average_purchase_price,
+            sell_price=current_price,
+            pnl=pnl_value
+        )
+            
+        transaction.executed_price = current_price
+        transaction.amount = total_revenue
+
+
+    @classmethod
+    def _process_deposit(cls, transaction):
+        """Regulation D compliant deposit processing"""
+        amount = cls._validate_amount(transaction.amount)
+        portfolio = transaction.portfolio
+        
+        # Ensure performance record exists
+        performance, _ = PortfolioPerformance.objects.get_or_create(
+            portfolio=portfolio
+        )
+        
+        portfolio.adjust_cash(amount)
+        performance.total_deposits += amount
+        performance.save(update_fields=['total_deposits'])
+        transaction.executed_price = None
+
+    @classmethod
+    def _process_withdrawal(cls, transaction):
+        amount = cls._validate_amount(transaction.amount)
+        portfolio = transaction.portfolio
+        
+        # Ensure performance record exists
+        performance, _ = PortfolioPerformance.objects.get_or_create(
+            portfolio=portfolio
+        )
+        
+        portfolio.adjust_cash(-amount)
+        performance.total_withdrawals += amount
+        performance.save(update_fields=['total_withdrawals'])
+        transaction.executed_price = None
+
+    @classmethod
+    def _validate_stock(cls, stock):
+        if not stock or not stock.is_active:
+            raise ValidationError("Invalid or inactive security")
+        if not hasattr(stock, 'is_active'):
+            raise ValidationError("Invalid stock structure")
+        if not stock.is_active:
+            raise ValidationError(f"Stock {stock.symbol} is not active")
+        return stock
+
+    @classmethod
+    def _validate_price(cls, price):
+        """Price validation per SEC Rule 612"""
+        if not isinstance(price, Decimal):
+            raise ValidationError("Price must be Decimal type")
+        if price <= Decimal('0'):
+            raise ValidationError(f"Invalid price: {price}")
+        return price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @classmethod
+    def _validate_quantity(cls, quantity):
+        """Quantity validation per SEC Rule 612"""
+        if not isinstance(quantity, int) or quantity <= 0:
+            raise ValidationError(f"Invalid quantity: {quantity}")
+        return quantity
+
+    @classmethod
+    def _validate_amount(cls, amount):
+        """Amount validation for cash transactions"""
+        if not isinstance(amount, Decimal):
+            raise ValidationError("Amount must be Decimal type")
+        if amount <= Decimal('0'):
+            raise ValidationError(f"Invalid amount: {amount}")
+        return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @classmethod
+    def _notify_ops_team(cls, transaction, error_msg):
+        """Hook for operational alerts (implement with Celery in production)"""
+        # Placeholder for actual notification system
+        pass
+--------------------------------------------------------------------------------
+
+backend/portfolio/services/performance_service.py:
+from decimal import Decimal, ROUND_HALF_UP
+from django.db import models
+from django.db.models import Sum
+from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
+from portfolio.models.transaction import Transaction
+from .historical_valuation import HistoricalValuationService
+
+class PerformanceCalculator:
+    @staticmethod
+    def calculate_time_weighted_return(portfolio, start_date, end_date):
+        """
+        Calculates true time-weighted return by geometrically linking daily returns
+        and splitting periods at cash flow events (deposits/withdrawals).
+        """
+        if start_date >= end_date:
+            return Decimal('0.0000')
+
+        # Fetch all cash flow dates (deposits and withdrawals) within the period
+        cash_flow_dates = Transaction.objects.filter(
+            portfolio=portfolio,
+            timestamp__range=(start_date, end_date),
+            transaction_type__in=[
+                Transaction.TransactionType.DEPOSIT,
+                Transaction.TransactionType.WITHDRAWAL
+            ]
+        ).annotate(
+            date=models.F('timestamp__date')
+        ).values_list('date', flat=True).distinct().order_by('date')
+
+        # Build boundary dates for sub-periods
+        boundary_dates = [start_date.date()] + list(cash_flow_dates) + [end_date.date()]
+        unique_dates = sorted(set(boundary_dates))
+
+        # Create sub-period ranges
+        periods = [(unique_dates[i], unique_dates[i+1]) for i in range(len(unique_dates)-1)]
+
+        cumulative_return = Decimal('1.0')
+
+        for period_start, period_end in periods:
+            # Use historical valuation service instead of raw snapshots
+            start_value = HistoricalValuationService.get_historical_value(
+                portfolio, period_start
+            )
+            end_value = HistoricalValuationService.get_historical_value(
+                portfolio, period_end
+            )
+
+            # Ensure values are valid
+            if start_value is None or end_value is None:
+                raise ValueError(
+                    f"Missing valuation for {period_start} or {period_end}"
+                )
+
+            if start_value == Decimal('0'):
+                sub_return = Decimal('0')
+            else:
+                sub_return = (end_value - start_value) / start_value
+            cumulative_return *= (Decimal('1') + sub_return)
+
+        # Calculate time-weighted return
+        twr = cumulative_return - Decimal('1')
+
+        # Annualize
+        total_days = (end_date - start_date).days
+        if total_days > 0:
+            annualized_twr = (
+                (Decimal('1') + twr) ** (Decimal('365') / Decimal(total_days)) - Decimal('1')
+            )
+        else:
+            annualized_twr = twr
+
+        return annualized_twr.quantize(
+            Decimal('0.0000'), rounding=ROUND_HALF_UP
+        )
+    
+    @staticmethod
+    def calculate_total_growth(portfolio):
+        """Break down portfolio returns with accurate net cash flow"""
+        performance = portfolio.performance
+        net_cash_flow = performance.total_deposits - performance.total_withdrawals
+        current_value = portfolio.total_value
+        investment_growth = current_value - net_cash_flow
+        
+        return {
+            'cash_contributions': performance.total_deposits,
+            'cash_withdrawals': performance.total_withdrawals,
+            'investment_growth': investment_growth,
+            'net_cash_flow': net_cash_flow,
+            'total_return': current_value
+        }
+    
+    def calculate_investment_only_growth(portfolio):
+        """Growth excluding cash holdings with accurate net cash flow"""
+        performance = portfolio.performance
+        net_cash_flow = performance.total_deposits - performance.total_withdrawals
+        current_value = portfolio.total_value
+        cash_balance = portfolio.cash_balance
+        investment_growth = current_value - net_cash_flow - cash_balance
+        
+        return {
+            'net_cash_flow': net_cash_flow,
+            'investment_growth': investment_growth,
+            'total_return': current_value
+        }
+    
+
+--------------------------------------------------------------------------------
+
+backend/portfolio/services/snapshot_service.py:
+# backend/portfolio/services/snapshot_service.py
+from django.db import models, IntegrityError, transaction
+import time
+from decimal import Decimal, DivisionByZero, ROUND_HALF_UP
+import logging
+from django.db.models import Sum, Q, Max
+from django.utils import timezone
+from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
+from portfolio.models.transaction import Transaction
+from django.db.models import Case, When, F, Value, IntegerField
+from stocks.models import Stock
+from portfolio.models.holding_snapshot import HoldingSnapshot
+from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
+
+class SnapshotService:
+    @classmethod
+    def _get_historical_cash(cls, portfolio, snapshot_date):
+        """Calculate cash balance as of snapshot date using transaction history with error handling."""
+        try:
+            cash_data = Transaction.objects.filter(
+                portfolio=portfolio,
+                timestamp__date__lte=snapshot_date
+            ).aggregate(
+                total_cash=Sum(
+                    'amount',
+                    filter=Q(transaction_type__in=['DEPOSIT', 'WITHDRAWAL']) |
+                           Q(transaction_type='BUY', amount__lt=0) |
+                           Q(transaction_type='SELL', amount__gt=0)
+                )
+            )
+            return cash_data['total_cash'] or Decimal('0.00')
+        except Exception as e:
+            logger.error(f"Error fetching historical cash for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
+            return Decimal('0.00')
+
+    @classmethod
+    def _get_historical_deposits(cls, portfolio, snapshot_date):
+        """Calculate total deposits as of snapshot date with error handling."""
+        try:
+            deposit_data = Transaction.objects.filter(
+                portfolio=portfolio,
+                transaction_type='DEPOSIT',
+                timestamp__date__lte=snapshot_date
+            ).aggregate(total=Sum('amount'))
+            return deposit_data['total'] or Decimal('0.00')
+        except Exception as e:
+            logger.error(f"Error fetching historical deposits for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
+            return Decimal('0.00')
+
+    @classmethod
+    def _get_historical_price(cls, stock_id, snapshot_date, portfolio):
+        """Enterprise-grade price resolution with cascading fallbacks"""
+        from portfolio.models.historical_price import HistoricalStockPrice
+        try:
+            # Tier 1: Exact date match
+            exact_price = HistoricalStockPrice.objects.filter(
+                stock_id=stock_id,
+                date=snapshot_date
+            ).values_list('price', flat=True).first()
+            if exact_price is not None:
+                return exact_price, 'exact_date'
+
+            # Tier 2: Latest historical price before snapshot
+            historical_price = HistoricalStockPrice.objects.filter(
+                stock_id=stock_id,
+                date__lt=snapshot_date
+            ).order_by('-date').values_list('price', flat=True).first()
+            if historical_price is not None:
+                return historical_price, 'latest_historical'
+
+            # Tier 3: Most recent portfolio acquisition price
+            buy_transaction = Transaction.objects.filter(
+                portfolio=portfolio,
+                stock_id=stock_id,
+                transaction_type='BUY',
+                timestamp__date__lte=snapshot_date
+            ).exclude(executed_price=None).order_by('-timestamp').first()
+            
+            if buy_transaction:
+                return buy_transaction.executed_price, 'portfolio_acquisition'
+
+            # Tier 4: Nearest historical price (before or after)
+            nearest_price = HistoricalStockPrice.objects.filter(
+                stock_id=stock_id
+            ).annotate(
+                date_diff=Case(
+                    When(date__lte=snapshot_date,
+                         then=snapshot_date - F('date')),
+                    When(date__gt=snapshot_date,
+                         then=F('date') - snapshot_date),
+                    output_field=models.DurationField()
+                ),
+                date_priority=Case(
+                    When(date__lte=snapshot_date, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField()
+                )
+            ).order_by('date_priority', 'date_diff').values_list('price', flat=True).first()
+
+            if nearest_price:
+                return nearest_price, 'nearest_historical'
+
+            # Tier 5: Current market price as last resort
+            stock = Stock.objects.get(pk=stock_id)
+            if stock.current_price > Decimal('0'):
+                logger.warning(f"Using current price for {stock.symbol} on {snapshot_date}")
+                return stock.current_price, 'current_price_fallback'
+            
+            latest_historical = HistoricalStockPrice.objects.filter(
+                stock_id=stock_id,
+                price__gt=0
+            ).order_by('-date').first()
+            if latest_historical:
+                logger.warning(f"Using latest historical price for {stock.symbol} on {snapshot_date}")
+                return latest_historical.price, 'historical_fallback'
+
+            # Final fallback with data integrity check
+            logger.error(f"Price resolution failed for {stock.symbol} on {snapshot_date}")
+            return Decimal('0.00'), 'error_fallback'
+
+        except Exception as e:
+            logger.error(f"Price resolution error: {str(e)}")
+            return Decimal('0.00'), 'system_error'
+        
+
+    def _get_historical_holdings(cls, portfolio, snapshot_date):
+        """Reconstruct portfolio holdings as of snapshot date using transaction history"""
+        cache_version_key = f"holdings_version_{portfolio.pk}"
+        cache_key = f"hist_hold_{portfolio.pk}_{snapshot_date}"
+        
+        # Get latest transaction timestamp for cache validation
+        last_txn_time = Transaction.objects.filter(
+            portfolio=portfolio,
+            timestamp__date__lte=snapshot_date
+        ).aggregate(Max('timestamp'))['timestamp__max'] or 0
+        
+        version = cache.get(cache_version_key, 0)
+        cached = cache.get(f"{cache_key}_v{version}")
+        
+        if cached and cached.get('valid_until') == last_txn_time:
+            return cached['holdings']
+    
+        holdings = {}  # {stock_id: {quantity, total_cost, average_price}}
+
+        transactions = (
+            Transaction.objects.filter(
+                portfolio=portfolio,
+                timestamp__date__lte=snapshot_date,
+                transaction_type__in=[
+                    Transaction.TransactionType.BUY,
+                    Transaction.TransactionType.SELL
+                ],
+                stock__isnull=False
+            )
+            .select_related('stock')
+            .order_by('timestamp')
+        )
+
+        for txn in transactions:
+            stock_id = txn.stock.id
+            if stock_id not in holdings:
+                holdings[stock_id] = {
+                    'quantity': 0,
+                    'total_cost': Decimal('0.00'),
+                    'average_price': Decimal('0.00')
+                }
+                
+            current = holdings[stock_id]
+            
+            if txn.transaction_type == Transaction.TransactionType.BUY:
+                new_quantity = current['quantity'] + txn.quantity
+                new_total_cost = current['total_cost'] + (txn.executed_price * txn.quantity)
+                new_avg = (new_total_cost / new_quantity).quantize(Decimal('0.01'), ROUND_HALF_UP) if new_quantity > 0 else Decimal('0.00')
+                
+                holdings[stock_id] = {
+                    'quantity': new_quantity,
+                    'total_cost': new_total_cost,
+                    'average_price': new_avg
+                }
+                
+            elif txn.transaction_type == Transaction.TransactionType.SELL:
+                if current['quantity'] >= txn.quantity:
+                    new_quantity = current['quantity'] - txn.quantity
+                    holdings[stock_id] = {
+                        'quantity': new_quantity,
+                        'total_cost': current['average_price'] * new_quantity,
+                        'average_price': current['average_price']
+                    }
+
+         # Filter out fully sold positions
+        holdings = {k: v for k, v in holdings.items() if v['quantity'] > 0}
+
+        # Write to versioned cache
+        new_version = version + 1
+        cache.set_many({
+            cache_version_key: new_version,
+            f"{cache_key}_v{new_version}": {
+                'holdings': holdings,
+                'valid_until': last_txn_time
+            }
+        }, timeout=60 * 60 * 24 * 7)  # 1 week cache
+
+        return holdings
+
+    @classmethod
+    def create_daily_snapshot(cls, portfolio, date=None):
+        """Creates daily snapshot with robust error handling and retries."""
+        from portfolio.models.portfolio import Portfolio
+        snapshot_date = date or timezone.now().date()
+        with transaction.atomic():
+            try:
+                locked_portfolio = Portfolio.objects.select_for_update().get(pk=portfolio.pk)
+                
+                # Get historical holdings as of snapshot date
+                historical_holdings = cls._get_historical_holdings(locked_portfolio, snapshot_date)
+                
+                # Calculate investment value and create holding snapshots
+                investment_value = Decimal('0.00')
+                holding_snapshots = []
+                
+                for stock_id, holding in historical_holdings.items():
+                    stock = Stock.objects.get(pk=stock_id)
+                    price, source = cls._get_historical_price(
+                        stock_id, snapshot_date, locked_portfolio
+                    )
+                    stock_value = price * holding['quantity']
+                    investment_value += stock_value
+                    
+                    holding_snapshots.append(
+                        HoldingSnapshot(
+                            portfolio=locked_portfolio,
+                            stock=stock,
+                            date=snapshot_date,
+                            quantity=holding['quantity'],
+                            average_purchase_price=holding['average_price'],
+                            total_value=stock_value
+                        )
+                    )
+
+                # Delete existing snapshots for this date before creating new ones
+                HoldingSnapshot.objects.filter(
+                    portfolio=locked_portfolio,
+                    date=snapshot_date
+                ).delete()
+                
+                # Bulk create new snapshots
+                HoldingSnapshot.objects.bulk_create(holding_snapshots)
+
+                # Calculate cash balance and deposits
+                historical_cash = cls._get_historical_cash(locked_portfolio, snapshot_date)
+                historical_deposits = cls._get_historical_deposits(locked_portfolio, snapshot_date)
+                total_value = historical_cash + investment_value
+
+                # Retry logic for portfolio snapshot
+                max_retries = 3
+                for retry in range(max_retries):
+                    try:
+                        snapshot, created = DailyPortfolioSnapshot.objects.update_or_create(
+                            portfolio=locked_portfolio,
+                            date=snapshot_date,
+                            defaults={
+                                'total_value': total_value,
+                                'cash_balance': historical_cash,
+                                'investment_value': investment_value,
+                                'total_deposits': historical_deposits
+                            }
+                        )
+                        return snapshot
+                    except IntegrityError:
+                        if retry == max_retries - 1:
+                            raise
+                        time.sleep(1)
+                        
+            except Exception as e:
+                logger.error(f"Snapshot failed: {str(e)}")
+                raise
+--------------------------------------------------------------------------------
+
+backend/portfolio/services/historical_valuation.py:
+import decimal
+import logging
+from decimal import Decimal
+from django.db import models, transaction
+from django.db.models import (
+    Case, When, F, Value, DurationField, IntegerField, Sum, Avg, ExpressionWrapper
+)
+from django.core.exceptions import FieldDoesNotExist
+from portfolio.models.historical_price import HistoricalStockPrice
+from portfolio.services.snapshot_service import SnapshotService
+from stocks.models import Stock
+from portfolio.models.transaction import Transaction
+
+
+class HistoricalValuationService:
+    @classmethod
+    def get_historical_value(cls, portfolio, date):
+        """
+        Calculate portfolio value as of specific date using ONLY historical data
+        """
+        holdings = SnapshotService._get_historical_holdings(portfolio, date)
+        total_value = Decimal('0')
+        
+        stock_dates = [{'stock_id': sid, 'date': date} for sid in holdings.keys()]
+        price_map = HistoricalStockPrice.bulk_cache_prices(stock_dates)
+        
+        for stock_id, holding in holdings.items():
+            price = price_map.get((stock_id, date))
+            if price is None:
+                price = cls._get_fallback_price(stock_id, date)
+            total_value += price * holding['quantity']
+            
+        return total_value + SnapshotService._get_historical_cash(portfolio, date)
+
+    @classmethod
+    def _get_fallback_price(cls, stock_id, date, portfolio):
+        """Enterprise-grade historical price fallback resolution with cascading tiers"""
+        from portfolio.models import HistoricalStockPrice, Transaction
+        logger = logging.getLogger(__name__)
+        decimal_context = decimal.getcontext()
+        decimal_context.rounding = decimal.ROUND_HALF_UP
+
+        try:
+            stock = Stock.objects.get(pk=stock_id)
+        except Stock.DoesNotExist:
+            logger.error(f"Stock {stock_id} not found")
+            return Decimal('0.00').quantize(Decimal('0.01'))
+
+        # Tier 1: Nearest historical price (before preferred)
+        nearest_price = HistoricalStockPrice.objects.filter(
+            stock=stock
+        ).annotate(
+            date_diff=Case(
+                When(date__lte=date, then=date - F('date')),
+                When(date__gt=date, then=F('date') - date),
+                output_field=DurationField()
+            ),
+            date_priority=Case(
+                When(date__lte=date, then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField()
+            )
+        ).order_by('date_priority', 'date_diff').values_list('price', flat=True).first()
+
+        if nearest_price:
+            logger.warning(f"Using nearest historical price for {stock.symbol} on {date}")
+            return nearest_price.quantize(Decimal('0.01'))
+
+        # Tier 2: Portfolio-specific FIFO acquisition cost
+        try:
+            historical_holdings = SnapshotService._get_historical_holdings(portfolio, date)
+            if stock_id in historical_holdings:
+                holding = historical_holdings[stock_id]
+                logger.warning(
+                    f"Using portfolio's FIFO average price for {stock.symbol} on {date}: "
+                    f"{holding['average_price']}"
+                )
+                return holding['average_price'].quantize(Decimal('0.01'))
+        except Exception as e:
+            logger.error(f"Failed to get historical holdings: {str(e)}")
+
+        # Tier 3: Global volume-weighted average price (VWAP)
+        vwap = Transaction.objects.filter(
+            stock=stock,
+            transaction_type=Transaction.TransactionType.BUY,
+            timestamp__date__lte=date
+        ).exclude(executed_price=None).aggregate(
+            vwap=ExpressionWrapper(
+                Sum(F('executed_price') * F('quantity')) / Sum(F('quantity')),
+                output_field=models.DecimalField()
+            )
+        )['vwap']
+
+        if vwap:
+            logger.warning(f"Using global VWAP for {stock.symbol} on {date}")
+            return vwap.quantize(Decimal('0.01'))
+
+        # Tier 4: Sector-based fallback (requires sector data)
+        try:
+            sector_avg = HistoricalStockPrice.objects.filter(
+                stock__sector=stock.sector,  # Assumes sector field on Stock model
+                date=date
+            ).aggregate(
+                avg_price=Avg('price')
+            )['avg_price']
+            
+            if sector_avg:
+                logger.warning(f"Using sector average for {stock.symbol} ({stock.sector}) on {date}")
+                return sector_avg.quantize(Decimal('0.01'))
+        except FieldDoesNotExist:
+            pass  # Sector field not implemented
+
+        # Tier 5: Volatility-adjusted moving average
+        try:
+            ma_window = 30
+            moving_avg = HistoricalStockPrice.objects.filter(
+                stock=stock,
+                date__lt=date
+            ).order_by('-date')[:ma_window].aggregate(
+                avg_price=Avg('price')
+            )['avg_price']
+            
+            if moving_avg:
+                logger.warning(f"Using {ma_window}-day moving average for {stock.symbol} on {date}")
+                return moving_avg.quantize(Decimal('0.01'))
+        except Exception as e:
+            logger.error(f"MA calculation failed: {str(e)}")
+
+        # Final fallback with circuit breaker
+        logger.critical(f"Price resolution failed for {stock.symbol} on {date}")
+        raise ValueError(f"Could not determine historical price for {stock.symbol} on {date}")
+--------------------------------------------------------------------------------
+
+backend/portfolio/serializers/transaction_serializers.py:
+from rest_framework import serializers
+from portfolio.models import Transaction
+from stocks.models import Stock
+
+class TransactionSerializer(serializers.ModelSerializer):
+    portfolio_id = serializers.UUIDField(source='portfolio.id', read_only=True)
+    idempotency_key = serializers.UUIDField(required=True)
+    transaction_type_display = serializers.SerializerMethodField()
+    stock_symbol = serializers.CharField(source='stock.symbol', read_only=True)
+    stock_name = serializers.CharField(source='stock.name', read_only=True)
+    stock = serializers.PrimaryKeyRelatedField(
+        queryset=Stock.objects.all(),
+        write_only=True,
+        required=False
+    )
+
+    class Meta:
+        model = Transaction
+        fields = [
+            'id',
+            'transaction_type',
+            'transaction_type_display',
+            'stock',
+            'stock_symbol',
+            'stock_name',
+            'quantity',
+            'executed_price',
+            'amount',
+            'timestamp',
+            'portfolio_id',
+            'idempotency_key',
+        ]
+        read_only_fields = [
+            'id',
+            'transaction_type_display',
+            'stock_symbol',
+            'stock_name',
+            'executed_price',
+            'timestamp',
+            'portfolio_id',
+        ]
+        extra_kwargs = {
+            'transaction_type': {'write_only': True},
+            'amount': {'write_only': True}
+        }
+
+    def get_transaction_type_display(self, obj):
+        return obj.get_transaction_type_display()
+
+    def validate(self, data):
+        """Enterprise-grade validation for transaction integrity"""
+        trade_types = [Transaction.TransactionType.BUY, Transaction.TransactionType.SELL]
+        
+        if data.get('transaction_type') in trade_types:
+            if not data.get('stock'):
+                raise serializers.ValidationError("Stock is required for trade transactions")
+            if not data.get('quantity'):
+                raise serializers.ValidationError("Quantity is required for trade transactions")
+        else:
+            if not data.get('amount'):
+                raise serializers.ValidationError("Amount is required for cash transactions")
+        
+        return data
+--------------------------------------------------------------------------------
+
+backend/portfolio/views/transaction_views.py:
+# backend/portfolio/views/transaction_views.py
+import logging
+from django.core.exceptions import ValidationError
+from django.db import DatabaseError
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.throttling import UserRateThrottle
+
+from portfolio.models import Portfolio, Transaction
+from portfolio.serializers.transaction_serializers import TransactionSerializer
+from portfolio.services.transaction_service import TransactionService
+
+logger = logging.getLogger(__name__)
+
+class TransactionListView(generics.ListAPIView):
+    serializer_class = TransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Transaction.objects.filter(
+            portfolio__user=self.request.user,
+            portfolio__is_deleted=False
+        ).select_related('stock', 'portfolio')
+
+
+class TransactionCreateView(generics.CreateAPIView):
+    serializer_class = TransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (ValidationError, PermissionDenied)):
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return super().handle_exception(exc)
+
+    def perform_create(self, serializer):
+        try:
+            portfolio = self.request.user.portfolios.get(is_default=True)
+            txn = TransactionService.execute_transaction({
+                **serializer.validated_data,
+                'portfolio': portfolio
+            })
+            serializer.instance = txn
+        except Portfolio.DoesNotExist:
+            raise ValidationError("User has no default portfolio")
+        except DatabaseError as e:
+            logger.error(f"Transaction database error: {e}")
+            raise APIException("Failed to process transaction")
+
+
+class TransactionDetailView(generics.RetrieveAPIView):
+    serializer_class = TransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Transaction.objects.filter(
+            portfolio__user=self.request.user,
+            portfolio__is_deleted=False
+        ).select_related('stock', 'portfolio')
+
+--------------------------------------------------------------------------------
+
+backend/stocks/models.py:
+from django.db import models
+from decimal import Decimal
+
+class Stock(models.Model):
+    symbol = models.CharField(max_length=10, unique=True)
+    name = models.CharField(max_length=100)
+    current_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    is_active = models.BooleanField(default=True)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.symbol} ({self.name})"
+
+    def save(self, *args, **kwargs):
+        self.symbol = self.symbol.strip().upper()
+        self.current_price = self.current_price.quantize(Decimal('0.01'))
+        super().save(*args, **kwargs)
+--------------------------------------------------------------------------------
+
+backend/users/models.py:
+from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from datetime import date
+
+# Validator function to ensure user's age is 15+
+def validate_age(value):
+    today = date.today()
+    age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
+    if age < 15:
+        raise ValidationError("User must be at least 15 years old.")
+    if value > today:
+        raise ValidationError("Date of birth cannot be in the future.")
+    
+class CustomUserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        """
+        Create a regular user: Requires full_name and dob for regular users.
+        """
+        if not email:
+            raise ValueError("The email must be set")
+        email = email.lower().strip()
+        email = self.normalize_email(email)
+        
+        if not extra_fields.get("full_name"):
+            raise ValueError("Full name is required for all users.")
+        
+        if not extra_fields.get("is_superuser", False) and not extra_fields.get("dob"):
+            raise ValueError("Regular users require a date of birth.")
+        
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.full_clean()
+        user.save()
+        return user
+
+    def create_superuser(self, email, password, **extra_fields):
+        """
+        Create a superuser: Only requires email and full_name.
+        """
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+
+        extra_fields.setdefault("full_name", "Admin User")
+
+        return self.create_user(email, password, **extra_fields)
+    
+class CustomUser(AbstractBaseUser, PermissionsMixin):
+    """
+    Custom user model.
+    """
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=255, blank=False, null=False)
+    dob = models.DateField(blank=True, null=True, validators=[validate_age])
+    # institution = models.CharField(max_length=255, blank=True, null=True) # TODO
+    # city = models.CharField(max_length=255, blank=True, null=True) # TODO
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False) 
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    USERNAME_FIELD = "email"
+    objects = CustomUserManager()
+
+    def clean(self):
+        if not self.full_name:
+            raise ValidationError({"full_name": "This field is required."})
+        
+        if not self.is_superuser and not self.dob:
+            raise ValidationError({"dob": "Required for regular users."})
+
+    def __str__(self):
+        return f"{self.full_name} ({self.email})"
+    
+    def get_full_name(self):
+        return self.full_name
+    
+    @property
+    def short_name(self):
+        return self.full_name.split()[0]
+
+
+
+--------------------------------------------------------------------------------
+

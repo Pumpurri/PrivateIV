@@ -1,20 +1,41 @@
 import React from 'react';
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./routes/ProtectedRoute";
+import Landing from "./components/Landing";
 import Login from "./components/Login";
 import Register from "./components/Register";
 import UserDashboard from "./components/UserDashboard";
+import AppLayout from "./components/AppLayout";
+import SiteLayout from "./components/SiteLayout";
+import SimpleLayout from "./components/SimpleLayout";
+import PortfoliosList from "./components/PortfoliosList";
+import PortfolioDetail from "./components/PortfolioDetail";
+import Transactions from "./components/Transactions";
+import { StockPriceProvider } from "./contexts/StockPriceContext";
 
 function App() {
     return (
         <Router>
-            <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route element={<ProtectedRoute />}>
-                    <Route path="/dashboard" element={<UserDashboard />} />
+            <StockPriceProvider>
+                <Routes>
+                    <Route element={<SiteLayout />}>
+                        <Route path="/" element={<Landing />} />
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/register" element={<Register />} />
+                        <Route element={<ProtectedRoute />}>
+                        <Route path="/dashboard" element={<UserDashboard />} />
+                        <Route path="/app" element={<SimpleLayout />}>
+                            <Route path="portfolios" element={<PortfoliosList />} />
+                            <Route path="portfolios/:id" element={<PortfolioDetail />} />
+                            <Route path="portfolios/:id/:tab" element={<PortfolioDetail />} />
+                        </Route>
+                        <Route path="/app" element={<AppLayout />}>
+                            <Route path="transactions" element={<Transactions />} />
+                        </Route>
+                    </Route>
                 </Route>
-            </Routes>
+                </Routes>
+            </StockPriceProvider>
         </Router>
     );
 }
