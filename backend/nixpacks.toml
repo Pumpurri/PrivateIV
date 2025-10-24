@@ -2,10 +2,13 @@
 nixPkgs = ["python311", "postgresql"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = [
+  "python -m venv /opt/venv",
+  ". /opt/venv/bin/activate && pip install -r requirements.txt"
+]
 
 [phases.build]
-cmds = ["python manage.py collectstatic --noinput"]
+cmds = [". /opt/venv/bin/activate && python manage.py collectstatic --noinput"]
 
 [start]
-cmd = "gunicorn TradeSimulator.wsgi:application --bind 0.0.0.0:$PORT --workers 3"
+cmd = ". /opt/venv/bin/activate && gunicorn TradeSimulator.wsgi:application --bind 0.0.0.0:$PORT --workers 3"
