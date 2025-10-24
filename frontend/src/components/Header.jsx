@@ -1,17 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../services/axios';
+import { clearCSRFToken } from '../services/axios';
+import { useAuth } from '../contexts/AuthContext';
 
 const Header = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isAuthenticated, logout: authLogout } = useAuth();
 
   const handleBrandClick = (e) => {
     e.preventDefault();
-    if (location.pathname === '/') {
+    const targetPath = isAuthenticated ? '/dashboard' : '/';
+
+    if (location.pathname === targetPath) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
-      navigate('/');
+      navigate(targetPath);
     }
   };
 
@@ -34,13 +39,19 @@ const Header = () => {
   }, []);
 
   const isAuthPage = location.pathname === '/register' || location.pathname === '/login';
-  const isSignedInSection = location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/app');
 
   const handleLogout = async () => {
     try {
       await apiClient.post('/auth/logout/');
-    } catch (_) {}
-    navigate('/login');
+    } catch (err) {
+      console.error('Logout failed:', err);
+    } finally {
+      // Always update client state, even if API call fails
+      clearCSRFToken(); // Clear CSRF token on logout
+      authLogout();
+      // Use window.location for clean logout (full page reload)
+      window.location.href = '/';
+    }
   };
 
   return (
@@ -56,13 +67,13 @@ const Header = () => {
         >
           <span className="brand-text">Simula</span> <span className="brand-badge">BETA</span>
         </a>
-        {!isAuthPage && !isSignedInSection && (
+        {!isAuthPage && !isAuthenticated && (
           <nav className="row">
             <Link className="btn primary" to="/register">Regístrate</Link>
             <Link className="nav-link" to="/login">Iniciar sesión</Link>
           </nav>
         )}
-        {isSignedInSection && (
+        {isAuthenticated && (
           <div className="row" ref={menuRef} style={{ position: 'relative' }}>
             <button className="btn" onClick={() => setMenuOpen(v => !v)} aria-haspopup="menu" aria-expanded={menuOpen}>
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

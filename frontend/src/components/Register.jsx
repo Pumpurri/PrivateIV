@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from "react-router-dom";
-import { registerUser } from "../services/api"; 
+import { registerUser } from "../services/api";
 import DatePicker from "./DatePicker";
+import { useAuth } from "../contexts/AuthContext";
 
 function Register() {
-    const [form, setForm] = useState({ 
-        email: '', 
-        password: '', 
+    const [form, setForm] = useState({
+        email: '',
+        password: '',
         confirmPassword: '',
-        fullName: '', 
-        dob: '' 
+        fullName: '',
+        dob: ''
     });
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [pwIssues, setPwIssues] = useState({ required: [], recommended: [] });
     const navigate = useNavigate();
+    const { login } = useAuth();
 
     function assessPassword(pw, email, fullName) {
         const required = [];
@@ -84,6 +86,8 @@ function Register() {
                 full_name: form.fullName.trim(),
                 dob: form.dob
             });
+            // Update auth state immediately (no need for additional API call)
+            login();
             navigate('/dashboard');
         } catch (err) {
             // Prefer structured field errors from DRF serializers
