@@ -112,8 +112,10 @@ class TransactionService:
         if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
             # BUY (PEN -> USD): use 'venta' (bank sells USD)
             fx = get_fx_rate(timezone.now().date(), portfolio.base_currency, stock.currency, rate_type='venta', session=session)
+            logger.info(f"[FX DEBUG] Buying {stock.symbol}: stock.currency={stock.currency}, portfolio.base={portfolio.base_currency}, fx_rate={fx}, session={session}")
             total_cost_base = (total_cost_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             price_per_share_base = (current_price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            logger.info(f"[FX DEBUG] total_cost_native=${total_cost_native}, total_cost_base={total_cost_base} {portfolio.base_currency}")
             transaction.fx_rate = fx
             transaction.fx_rate_type = 'venta'
         else:
