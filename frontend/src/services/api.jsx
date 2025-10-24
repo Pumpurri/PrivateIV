@@ -17,6 +17,11 @@ export const loginUser = async (credentials, config = {}) => {
   return apiClient.post("/auth/login/", credentials, config);
 };
 
+export const logoutUser = async () => {
+  await ensureCsrf();
+  return apiClient.post('/auth/logout/');
+};
+
 export const verifyAuth = async () => {
   try {
     const response = await apiClient.get("/auth/me/");

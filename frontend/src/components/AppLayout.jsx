@@ -1,16 +1,22 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import apiClient from '../services/axios';
+import { logoutUser } from '../services/api';
+import { clearCSRFToken } from '../services/axios';
+import { useAuth } from '../contexts/AuthContext';
 
 const AppLayout = () => {
   const navigate = useNavigate();
+  const { logout: authLogout } = useAuth();
 
   const handleLogout = async () => {
     try {
-      await apiClient.post('/auth/logout/');
-      navigate('/login');
+      await logoutUser();
     } catch (e) {
       console.error(e);
+    } finally {
+      clearCSRFToken();
+      authLogout();
+      navigate('/login');
     }
   };
 
