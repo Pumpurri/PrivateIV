@@ -194,7 +194,21 @@ const HistoryTab = ({ transactions = [] }) => {
       if (tp === 'WITHDRAWAL') return -1;
       return 1; // SELL and DEPOSIT
     };
-    return filtered.reduce((acc, t) => acc + signOf(t) * Number(t.amount || 0), 0);
+
+    return filtered.reduce((acc, t) => {
+      const sign = signOf(t);
+      const amount = Number(t.amount || 0);
+
+      // For BUY/SELL with FX rate, convert to PEN
+      const tp = String(t.transaction_type || '').toUpperCase();
+      if ((tp === 'BUY' || tp === 'SELL') && t.fx_rate) {
+        const fx = Number(t.fx_rate || 1);
+        return acc + sign * (amount * fx);
+      }
+
+      // For DEPOSIT/WITHDRAWAL or no FX, use amount as-is (already in PEN)
+      return acc + sign * amount;
+    }, 0);
   }, [filtered]);
 
   const formatSolWithSign = (value) => {
