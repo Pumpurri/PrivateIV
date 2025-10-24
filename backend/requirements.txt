@@ -33,6 +33,7 @@ prompt_toolkit==3.0.50
 psutil==7.0.0
 psycopg2-binary==2.9.10
 pytest==8.3.5
+redis==5.0.0
 pytest-django==4.10.0
 pytest-mock==3.14.0
 python-crontab==3.2.0
