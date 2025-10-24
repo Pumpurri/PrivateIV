@@ -1,10 +1,11 @@
 import axios from 'axios';
 
+// Use environment variable for API URL, fallback to /api for local dev with proxy
 const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   withCredentials: true,
-  xsrfCookieName: 'csrftoken', 
-  xsrfHeaderName: 'X-CSRFToken', 
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
 });
 
 // Small optimization: mark X-Requested-With for CSRF middleware heuristics
