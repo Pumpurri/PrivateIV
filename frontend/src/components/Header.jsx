@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import apiClient from '../services/axios';
 import { clearCSRFToken } from '../services/axios';
 import { useAuth } from '../contexts/AuthContext';
+import { logoutUser } from '../services/api';
 
 const Header = () => {
   const location = useLocation();
@@ -42,7 +42,7 @@ const Header = () => {
 
   const handleLogout = async () => {
     try {
-      await apiClient.post('/auth/logout/');
+      await logoutUser();
     } catch (err) {
       console.error('Logout failed:', err);
     } finally {
