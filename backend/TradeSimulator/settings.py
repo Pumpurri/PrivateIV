@@ -120,14 +120,14 @@ REST_FRAMEWORK = {
 
 # CSRF Protection
 CSRF_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'  # None required for cross-domain
 CSRF_TRUSTED_ORIGINS = os.getenv(
     'CSRF_TRUSTED_ORIGINS',
     'http://localhost:5173,http://localhost:8000'
 ).split(',')
 
 SESSION_COOKIE_SECURE = not DEBUG
-SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'  # None required for cross-domain
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = os.getenv(
