@@ -16,7 +16,7 @@ const tabsList = [
   { id: 'balances', label: 'Balances' },
   { id: 'positions', label: 'Posiciones' },
   { id: 'realized', label: 'Ganancias Realizadas' },
-  { id: 'performance', label: 'Portfolio Performance' },
+  { id: 'performance', label: 'Rendimiento del Portafolio' },
   { id: 'history', label: 'Historial de Transacciones' },
   { id: 'trade', label: 'Operar', separator: true }
 ];
