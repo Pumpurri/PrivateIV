@@ -21,7 +21,13 @@ export const verifyAuth = async () => {
   try {
     const response = await apiClient.get("/auth/me/");
     return response.status === 200;
-  } catch {
+  } catch (error) {
+    // 403/401 is expected when not logged in - don't log as error
+    if (error.response?.status === 403 || error.response?.status === 401) {
+      return false;
+    }
+    // Log unexpected errors
+    console.error('Auth verification failed:', error);
     return false;
   }
 };
