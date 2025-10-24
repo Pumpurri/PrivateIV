@@ -2,10 +2,15 @@ from django.urls import path
 from . import views
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import JsonResponse
+from django.middleware.csrf import get_token
 
 @ensure_csrf_cookie
 def get_csrf(request):
-    return JsonResponse({"detail": "CSRF cookie set"})
+    # Get the CSRF token and send it in the response
+    csrf_token = get_token(request)
+    response = JsonResponse({"detail": "CSRF cookie set"})
+    response['X-CSRFToken'] = csrf_token
+    return response
 
 urlpatterns = [
     # Admin endpoints
