@@ -59,8 +59,11 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Has session cookie = verify with backend
-      const authenticated = await verifyAuth();
-      setIsAuthenticated(authenticated);
+      const result = await verifyAuth();
+      setIsAuthenticated(result.authenticated);
+      if (result.user) {
+        setUser(result.user);
+      }
     } catch (error) {
       console.error('Auth check failed:', error);
       setIsAuthenticated(false);

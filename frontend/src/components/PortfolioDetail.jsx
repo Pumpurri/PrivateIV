@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import { createTransaction, deletePortfolio, getPortfolio, getPortfolioHoldings, getTransactions, updatePortfolio } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const BalancesTab = React.lazy(() => import('../tabs/BalancesTab'));
 const PositionsTab = React.lazy(() => import('../tabs/PositionsTab'));
@@ -23,6 +24,17 @@ const tabsList = [
 const PortfolioDetail = () => {
   const navigate = useNavigate();
   const { id, tab } = useParams();
+  const { user } = useAuth();
+  const isAdmin = user?.is_staff || user?.is_superuser;
+
+  // Show all tabs, but mark admin-only tabs
+  const visibleTabs = useMemo(() => {
+    return tabsList.map(t => ({
+      ...t,
+      disabled: (t.id === 'realized' || t.id === 'performance') && !isAdmin
+    }));
+  }, [isAdmin]);
+
   const tabsSet = useMemo(() => new Set(tabsList.map(t => t.id)), []);
   const initialTab = useMemo(() => {
     if (tab && tabsSet.has(tab)) return tab;
@@ -46,6 +58,7 @@ const PortfolioDetail = () => {
   const [walletAmount, setWalletAmount] = useState('');
   const [walletSubmitting, setWalletSubmitting] = useState(false);
   const [walletError, setWalletError] = useState('');
+  const [hoveredDisabledTab, setHoveredDisabledTab] = useState(null);
 
   // Sync tab state with URL param; default to balances
   useEffect(() => {
@@ -53,10 +66,17 @@ const PortfolioDetail = () => {
       navigate(`/app/portfolios/${id}/balances`, { replace: true });
       return;
     }
+
+    // Redirect non-admin from admin-only tabs
+    if ((tab === 'realized' || tab === 'performance') && !isAdmin) {
+      navigate(`/app/portfolios/${id}/balances`, { replace: true });
+      return;
+    }
+
     if (tabsSet.has(tab) && tab !== activeTab) {
       setActiveTab(tab);
     }
-  }, [tab, id, tabsSet, activeTab, navigate]);
+  }, [tab, id, tabsSet, activeTab, navigate, isAdmin]);
 
   // Load real data to avoid mock flicker
   useEffect(() => {
@@ -658,21 +678,81 @@ const PortfolioDetail = () => {
 
         {/* Tabs Nav */}
         <div className="row" style={{ gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 8, justifyContent: 'center', alignItems: 'center' }}>
-          {tabsList.map((t) => (
+          {visibleTabs.map((t) => (
             <React.Fragment key={t.id}>
               {t.separator && <span style={{ color: 'var(--border)', fontSize: 18, fontWeight: 300 }}>|</span>}
-              <button
-                className={`btn ${activeTab === t.id ? 'primary' : 'ghost'}`}
-                onClick={() => navigate(`/app/portfolios/${id}/${t.id}`)}
-                style={{ fontSize: 14 }}
-                onMouseEnter={() => {
-                  // simple prefetch hint
-                  if (t.id === 'performance') import('../tabs/PerformanceTab');
-                  if (t.id === 'realized') import('../tabs/RealizedTab');
-                }}
-              >
-                {t.label}
-              </button>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  className={`btn ${activeTab === t.id ? 'primary' : 'ghost'}`}
+                  onClick={() => !t.disabled && navigate(`/app/portfolios/${id}/${t.id}`)}
+                  style={{
+                    fontSize: 14,
+                    opacity: t.disabled ? 0.4 : 1,
+                    cursor: t.disabled ? 'not-allowed' : 'pointer',
+                    pointerEvents: t.disabled ? 'none' : 'auto'
+                  }}
+                  onMouseEnter={() => {
+                    // simple prefetch hint
+                    if (!t.disabled) {
+                      if (t.id === 'performance') import('../tabs/PerformanceTab');
+                      if (t.id === 'realized') import('../tabs/RealizedTab');
+                    }
+                  }}
+                  disabled={t.disabled}
+                >
+                  {t.label}
+                </button>
+                {t.disabled && (
+                  <>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        cursor: 'not-allowed',
+                        zIndex: 1
+                      }}
+                      onMouseEnter={() => setHoveredDisabledTab(t.id)}
+                      onMouseLeave={() => setHoveredDisabledTab(null)}
+                    />
+                    {hoveredDisabledTab === t.id && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: '-32px',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          background: 'rgba(0, 0, 0, 0.9)',
+                          color: '#fff',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          whiteSpace: 'nowrap',
+                          zIndex: 1000,
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        En desarrollo
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '-4px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '4px solid transparent',
+                            borderRight: '4px solid transparent',
+                            borderBottom: '4px solid rgba(0, 0, 0, 0.9)'
+                          }}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </React.Fragment>
           ))}
         </div>
@@ -682,8 +762,8 @@ const PortfolioDetail = () => {
           <React.Suspense fallback={<div className="muted">Loading…</div>}>
             {activeTab === 'balances' && <BalancesTab portfolio={portfolio} transactions={transactions} />}
             {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} transactions={transactions} />}
-            {activeTab === 'realized' && <RealizedTab portfolio={portfolio} />}
-            {activeTab === 'performance' && <PerformanceTab />}
+            {activeTab === 'realized' && isAdmin && <RealizedTab portfolio={portfolio} />}
+            {activeTab === 'performance' && isAdmin && <PerformanceTab />}
             {activeTab === 'history' && <HistoryTab transactions={transactions} />}
             {activeTab === 'trade' && <TradeTab portfolio={portfolio} holdings={holdings} onTransaction={refreshAll} />}
           </React.Suspense>
