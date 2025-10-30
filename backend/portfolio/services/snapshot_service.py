@@ -19,22 +19,52 @@ logger = logging.getLogger(__name__)
 class SnapshotService:
     @classmethod
     def _get_historical_cash(cls, portfolio, snapshot_date):
-        """Calculate cash balance as of snapshot date using transaction history with error handling."""
+        """Calculate cash balance as of snapshot date using transaction history with error handling.
+
+        This method properly accounts for all transaction types:
+        - DEPOSIT: adds cash (positive amount)
+        - WITHDRAWAL: removes cash (negative amount stored as positive, so we negate)
+        - BUY: removes cash (amount * fx_rate if applicable)
+        - SELL: adds cash (amount * fx_rate if applicable)
+        """
         try:
-            cash_data = Transaction.objects.filter(
+            transactions = Transaction.objects.filter(
                 portfolio=portfolio,
                 timestamp__date__lte=snapshot_date
-            ).aggregate(
-                total_cash=Sum(
-                    'amount',
-                    filter=Q(transaction_type__in=['DEPOSIT', 'WITHDRAWAL']) |
-                           Q(transaction_type='BUY', amount__lt=0) |
-                           Q(transaction_type='SELL', amount__gt=0)
-                )
-            )
-            return cash_data['total_cash'] or Decimal('0.00')
+            ).select_related('stock').order_by('timestamp')
+
+            cash_balance = Decimal('0.00')
+
+            for txn in transactions:
+                amount = Decimal(str(txn.amount)) if txn.amount else Decimal('0.00')
+                fx_rate = Decimal(str(txn.fx_rate)) if txn.fx_rate else Decimal('1.00')
+
+                if txn.transaction_type == Transaction.TransactionType.DEPOSIT:
+                    # Deposits add cash
+                    cash_balance += amount
+
+                elif txn.transaction_type == Transaction.TransactionType.WITHDRAWAL:
+                    # Withdrawals remove cash (amount is stored as positive)
+                    cash_balance -= amount
+
+                elif txn.transaction_type == Transaction.TransactionType.BUY:
+                    # BUY removes cash
+                    # Amount is in native currency (e.g., USD), need to convert to base currency (e.g., PEN)
+                    cash_in_base = amount * fx_rate
+                    cash_balance -= cash_in_base
+
+                elif txn.transaction_type == Transaction.TransactionType.SELL:
+                    # SELL adds cash
+                    # Amount is in native currency, need to convert to base currency
+                    cash_in_base = amount * fx_rate
+                    cash_balance += cash_in_base
+
+            return cash_balance.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
         except Exception as e:
             logger.error(f"Error fetching historical cash for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return Decimal('0.00')
 
     @classmethod
