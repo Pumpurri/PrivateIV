@@ -5,10 +5,9 @@ from django.db import models, transaction
 from django.db.models import (
     Case, When, F, Value, DurationField, IntegerField, Sum, Avg, ExpressionWrapper
 )
-from portfolio.models.historical_price import HistoricalStockPrice
+from stocks.models import HistoricalStockPrice, Stock
 from portfolio.services.snapshot_service import SnapshotService
 from portfolio.services.fx_service import get_fx_rate
-from stocks.models import Stock
 from portfolio.models.transaction import Transaction
 
 
@@ -45,7 +44,6 @@ class HistoricalValuationService:
     @classmethod
     def _get_fallback_price(cls, stock_id, date, portfolio):
         """Enterprise-grade historical price fallback resolution with cascading tiers"""
-        from portfolio.models import HistoricalStockPrice, Transaction
         logger = logging.getLogger(__name__)
         decimal_context = decimal.getcontext()
         decimal_context.rounding = decimal.ROUND_HALF_UP
