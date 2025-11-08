@@ -19,7 +19,7 @@ BATCHES = [
     'MRK,XOM,CVX,NEE,DUK,FDX,UPS,BA,LMT,GE,MMM,HON,T,VZ,TMUS,DIS,CMCSA,ADP,BK,SCHW',
 ]
 
-API_KEY = 'lU7kZOh9e7xeHd8HBzYL00jZzaPovqYO'
+API_KEY = os.getenv('FMP_API')
 
 if not API_KEY:
     print("ERROR: FMP_API environment variable not found!")
