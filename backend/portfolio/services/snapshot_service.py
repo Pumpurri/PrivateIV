@@ -84,7 +84,7 @@ class SnapshotService:
     @classmethod
     def _get_historical_price(cls, stock_id, snapshot_date, portfolio):
         """Enterprise-grade price resolution with cascading fallbacks"""
-        from portfolio.models.historical_price import HistoricalStockPrice
+        from stocks.models import HistoricalStockPrice
         try:
             # Tier 1: Exact date match
             exact_price = HistoricalStockPrice.objects.filter(

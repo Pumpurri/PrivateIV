@@ -17,7 +17,6 @@ from portfolio.views import (
     FXRateView,
     PortfolioRealizedView,
 )
-from portfolio.views.admin_views import RegenerateSnapshotsView
 
 urlpatterns = [
     # Dashboard endpoints
@@ -38,7 +37,4 @@ urlpatterns = [
 
     # FX endpoints
     path('fx-rates/', FXRateView.as_view(), name='fx-rates'),
-
-    # Admin endpoints
-    path('admin/regenerate-snapshots/', RegenerateSnapshotsView.as_view(), name='admin-regenerate-snapshots'),
 ]

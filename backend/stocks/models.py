@@ -2,6 +2,7 @@ from django.db import models
 from decimal import Decimal
 from django.utils import timezone
 from datetime import timedelta
+from django.core.cache import cache
 
 class Stock(models.Model):
     symbol = models.CharField(max_length=10, unique=True)
@@ -58,7 +59,6 @@ class Stock(models.Model):
             return self.previous_close
 
         # Try to get from historical data (yesterday's price)
-        from portfolio.models import HistoricalStockPrice
         today = timezone.now().date()
         yesterday = today - timedelta(days=1)
 
@@ -121,3 +121,81 @@ class StockRefreshStatus(models.Model):
             cls.objects.filter(pk=obj.pk).update(last_refreshed_at=ts)
             obj.refresh_from_db()
         return obj
+
+
+class HistoricalStockPrice(models.Model):
+    """
+    Stores end-of-day historical prices for stocks.
+    Used for portfolio valuation, performance tracking, and charting.
+    """
+    stock = models.ForeignKey(
+        Stock,
+        on_delete=models.CASCADE,
+        related_name='price_history'
+    )
+    date = models.DateField(db_index=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['stock', 'date'], name='unique_stock_date')
+        ]
+        ordering = ['-date']
+        db_table = 'stocks_historicalstockprice'
+
+    def __str__(self):
+        return f"{self.stock.symbol} @ {self.date}: ${self.price}"
+
+    @classmethod
+    def get_price(cls, stock, date):
+        """Get cached price for a stock on a specific date"""
+        cache_key = f'stock_price_{stock.id}_{date}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Decimal(cached)
+
+        try:
+            price = cls.objects.get(stock=stock, date=date).price
+            cache.set(cache_key, str(price), timeout=3600*24)  # Cache for 24h
+            return price
+        except cls.DoesNotExist:
+            return None
+
+    @classmethod
+    def bulk_cache_prices(cls, stock_dates):
+        """Optimized method for batch price lookups"""
+        cache_keys = {}
+        dates = {sd['date'] for sd in stock_dates}
+        stock_ids = {sd['stock_id'] for sd in stock_dates}
+
+        # Check cache first
+        for sd in stock_dates:
+            key = f'stock_price_{sd["stock_id"]}_{sd["date"]}'
+            cached = cache.get(key)
+            if cached is not None:
+                cache_keys[(sd["stock_id"], sd["date"])] = Decimal(cached)
+
+        # Find missing prices
+        missing = []
+        for sd in stock_dates:
+            if (sd["stock_id"], sd["date"]) not in cache_keys:
+                missing.append((sd["stock_id"], sd["date"]))
+
+        # Batch query for missing prices
+        if missing:
+            stock_ids = {s[0] for s in missing}
+            dates = {s[1] for s in missing}
+
+            prices = cls.objects.filter(
+                stock_id__in=stock_ids,
+                date__in=dates
+            ).values('stock_id', 'date', 'price')
+
+            for p in prices:
+                key = (p['stock_id'], p['date'])
+                cache_keys[key] = p['price']
+                cache.set(f'stock_price_{p["stock_id"]}_{p["date"]}',
+                         str(p['price']),
+                         timeout=3600*24)
+
+        return cache_keys

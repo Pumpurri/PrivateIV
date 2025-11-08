@@ -2,9 +2,14 @@
 from celery import shared_task
 from portfolio.services import SnapshotService
 from portfolio.models import Portfolio
+from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
 from django.utils import timezone
+from datetime import timedelta
 from portfolio.services.performance_service import PerformanceCalculator
 from portfolio.services.fx_ingest_service import upsert_latest_from_bcrp
+import logging
+
+logger = logging.getLogger(__name__)
 
 @shared_task
 def create_daily_snapshots():
