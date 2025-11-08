@@ -324,6 +324,12 @@ function computeRange(preset, seriesList) {
   } else {
     start = subtractMonths(end, 6);
   }
+
+  // Ensure start is not before the first available data point (except for MAX)
+  if (preset !== 'MAX' && start.getTime() < minDate.getTime()) {
+    start = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate(), 0, 0, 0, 0);
+  }
+
   if (start.getTime() > end.getTime()) {
     start = new Date(end.getTime());
   }
