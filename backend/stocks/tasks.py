@@ -132,10 +132,11 @@ def update_us_stock_prices(data):
     """
     if not data:
         return
-    
+
     for stock_info in data:
         symbol = stock_info.get('symbol')
         current_price = stock_info.get('price', 0.0)
+        previous_close = stock_info.get('previousClose')
         name = stock_info.get('name', 'Unknown')
 
         Stock.objects.update_or_create(
@@ -143,6 +144,7 @@ def update_us_stock_prices(data):
             defaults={
                 'name': name,
                 'current_price': current_price,
+                'previous_close': previous_close,
                 'company_code': '',
                 'is_local': False,
             }
@@ -225,6 +227,7 @@ def fetch_eod_prices():
             for stock_info in data:
                 symbol = stock_info.get('symbol')
                 current_price = stock_info.get('price', 0.0)
+                previous_close = stock_info.get('previousClose')
                 name = stock_info.get('name', 'Unknown')
 
                 stock, created = Stock.objects.update_or_create(
@@ -232,6 +235,7 @@ def fetch_eod_prices():
                     defaults={
                         'name': name,
                         'current_price': current_price,
+                        'previous_close': previous_close,
                         'company_code': '',
                         'is_local': False,
                     }
