@@ -87,6 +87,8 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
 
   const rows = useMemo(() => {
     const totalValue = Number(portfolio?.total_value || 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     return (holdings || []).map(h => {
       const qty = Number(h.quantity || 0);
@@ -120,13 +122,26 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
       const priceChg = h.stock?.price_change != null ? Number(h.stock.price_change) : null;
       const priceChgPct = h.stock?.price_change_percent != null ? Number(h.stock.price_change_percent) : null;
 
-      // Day change: calculate based on price change applied to current market value
-      const dayChg = priceChg != null && qty ? priceChg * qty : null;
-      const dayChgPct = priceChgPct; // Same percentage applies to position
+      // Check if there were any transactions for this stock today
+      const hadTransactionsToday = (transactions || []).some(tx => {
+        if (!tx || !tx.stock_symbol || !tx.timestamp) return false;
+        const txSymbol = String(tx.stock_symbol).toUpperCase();
+        const txDate = new Date(tx.timestamp);
+        txDate.setHours(0, 0, 0, 0);
+        return txSymbol === symbol && txDate.getTime() === today.getTime();
+      });
+
+      // Day change: only show if no transactions today
+      let dayChg = null;
+      let dayChgPct = null;
+      if (!hadTransactionsToday && priceChg != null && qty) {
+        dayChg = priceChg * qty;
+        dayChgPct = priceChgPct;
+      }
 
       return { id: h.id, sym: h.stock?.symbol, name: h.stock?.name, qty, price, mktVal, costBasis, gl, glPct, pctOfAcct, priceChg, priceChgPct, dayChg, dayChgPct };
     });
-  }, [portfolio, holdings, costBasisMap]);
+  }, [portfolio, holdings, costBasisMap, transactions]);
 
   const signClass = (v) => {
     const n = typeof v === 'number' ? v : Number.isFinite(v) ? Number(v) : NaN;
