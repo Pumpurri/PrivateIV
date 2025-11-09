@@ -152,7 +152,9 @@ def update_us_stock_prices(data):
 @shared_task
 def fetch_stock_prices():
     """
-    Celery task to fetch and update stock prices for all companies
+    Celery task to fetch and update stock prices for all companies.
+    This updates Stock.current_price only (for intraday updates).
+    For end-of-day historical prices, use fetch_eod_prices() instead.
     """
     # TODO: split BVL ingestion into its own scheduled task so it can
     # continue refreshing after NYSE-specific schedules pause.
@@ -166,7 +168,85 @@ def fetch_stock_prices():
 
         if data:
             update_us_stock_prices(data)
-        
+
         print(f"Updated stock prices for batch: {symbols}")
     StockRefreshStatus.mark_refreshed(timezone.now())
-        
+
+
+@shared_task
+def fetch_eod_prices():
+    """
+    Celery task to fetch end-of-day prices and save them to HistoricalStockPrice.
+    This should run once per day after market close (4:00 PM EST).
+
+    Saves both current_price (Stock table) and historical_price (HistoricalStockPrice table).
+    """
+    from stocks.models import HistoricalStockPrice
+
+    today = timezone.now().date()
+
+    # Fetch BVL stocks and save historical
+    try:
+        records = fetch_bvl_market_data()
+        if records:
+            for item in records:
+                defaults = {
+                    'name': item.get('name') or item.get('symbol'),
+                    'current_price': item.get('current_price'),
+                    'previous_close': item.get('previous_close'),
+                    'currency': item.get('currency') or 'PEN',
+                    'company_code': item.get('company_code', ''),
+                    'is_local': True,
+                }
+                stock, created = Stock.objects.update_or_create(
+                    symbol=item['symbol'],
+                    defaults=defaults
+                )
+
+                # Save EOD historical price
+                current_price = item.get('current_price')
+                if current_price and current_price > 0:
+                    HistoricalStockPrice.objects.update_or_create(
+                        stock=stock,
+                        date=today,
+                        defaults={'price': current_price}
+                    )
+    except RuntimeError as exc:
+        print(f"[stocks] Failed to fetch BVL EOD data: {exc}")
+
+    # Fetch US stocks and save historical
+    batches = batch_companies(COMPANIES, batch_size=20)
+
+    for batch in batches:
+        symbols = ','.join([company['symbol'] for company in batch])
+        data = fetch_data_for_companies(symbols)
+
+        if data:
+            for stock_info in data:
+                symbol = stock_info.get('symbol')
+                current_price = stock_info.get('price', 0.0)
+                name = stock_info.get('name', 'Unknown')
+
+                stock, created = Stock.objects.update_or_create(
+                    symbol=symbol,
+                    defaults={
+                        'name': name,
+                        'current_price': current_price,
+                        'company_code': '',
+                        'is_local': False,
+                    }
+                )
+
+                # Save EOD historical price
+                if current_price and current_price > 0:
+                    HistoricalStockPrice.objects.update_or_create(
+                        stock=stock,
+                        date=today,
+                        defaults={'price': current_price}
+                    )
+
+        print(f"Saved EOD prices for batch: {symbols}")
+
+    StockRefreshStatus.mark_refreshed(timezone.now())
+    print(f"EOD prices saved for {today}")
+
