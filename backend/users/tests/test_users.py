@@ -1,6 +1,11 @@
 import pytest
 from datetime import date, timedelta
+from django.contrib.auth import authenticate
+from django.contrib.auth.tokens import default_token_generator
+from django.core import mail
 from django.urls import reverse
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from rest_framework.test import APIClient
 from users.models import CustomUser
 from users.serializers import UserCreateSerializer, CustomUserSerializer
@@ -109,15 +114,23 @@ class TestCustomUserSerializer:
     def test_serialized_data(self, factory_user):
         serializer = CustomUserSerializer(factory_user)
         data = serializer.data
+        assert data['id'] == factory_user.id
         assert data['email'] == factory_user.email
         assert data['full_name'] == factory_user.full_name
+        assert data['is_staff'] == factory_user.is_staff
+        assert data['is_superuser'] == factory_user.is_superuser
         assert data['age'] >= 15
 
     def test_read_only_fields(self, factory_user):
         initial_email = factory_user.email
         serializer = CustomUserSerializer(
             instance=factory_user,
-            data={'email': 'new@example.com', 'full_name': 'Updated Name'},
+            data={
+                'email': 'new@example.com',
+                'full_name': 'Updated Name',
+                'is_staff': True,
+                'is_superuser': True,
+            },
             partial=True
         )
         assert serializer.is_valid()
@@ -125,6 +138,8 @@ class TestCustomUserSerializer:
         factory_user.refresh_from_db()
         assert factory_user.email == initial_email
         assert factory_user.full_name == 'Updated Name'
+        assert factory_user.is_staff is False
+        assert factory_user.is_superuser is False
 
 # View Tests ------------------------------------------------------------------
 @pytest.mark.django_db
@@ -192,7 +207,21 @@ class TestUserProfile:
         client.force_authenticate(user=factory_user)
         response = client.get(reverse('user-profile'))
         assert response.status_code == 200
+        assert response.data['id'] == factory_user.id
         assert response.data['email'] == factory_user.email
+        assert response.data['full_name'] == factory_user.full_name
+        assert response.data['is_staff'] == factory_user.is_staff
+        assert response.data['is_superuser'] == factory_user.is_superuser
+
+    def test_admin_profile_returns_staff_flags(self, client, factory_admin):
+        client.force_authenticate(user=factory_admin)
+        response = client.get(reverse('user-profile'))
+        assert response.status_code == 200
+        assert response.data['id'] == factory_admin.id
+        assert response.data['email'] == factory_admin.email
+        assert response.data['full_name'] == factory_admin.full_name
+        assert response.data['is_staff'] is True
+        assert response.data['is_superuser'] is True
 
     def test_profile_update(self, client, factory_user):
         client.force_authenticate(user=factory_user)
@@ -221,6 +250,80 @@ class TestLogout:
         response = client.post(reverse('logout'))
         assert response.status_code == 200
         assert not hasattr(client, 'user') 
+
+
+@pytest.mark.django_db
+class TestPasswordReset:
+    @pytest.fixture(autouse=True)
+    def reset_settings(self, settings):
+        settings.EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+        settings.PASSWORD_RESET_URL_TEMPLATE = 'https://app.example/reset-password?uid={uid}&token={token}'
+        settings.DEFAULT_FROM_EMAIL = 'support@example.com'
+        settings.SUPPORT_EMAIL = 'support@example.com'
+        mail.outbox = []
+
+    def test_request_sends_reset_email_for_existing_user(self, client, factory_user):
+        response = client.post(reverse('password-reset'), {'email': factory_user.email})
+
+        assert response.status_code == 200
+        assert response.data == {
+            'detail': 'If an account exists for that email, password reset instructions have been sent.',
+            'support_email': 'support@example.com',
+        }
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].to == [factory_user.email]
+        assert 'https://app.example/reset-password?' in mail.outbox[0].body
+        assert 'uid=' in mail.outbox[0].body
+        assert 'token=' in mail.outbox[0].body
+
+    def test_request_does_not_reveal_unknown_email(self, client):
+        response = client.post(reverse('password-reset'), {'email': 'missing@example.com'})
+
+        assert response.status_code == 200
+        assert response.data['support_email'] == 'support@example.com'
+        assert len(mail.outbox) == 0
+
+    def test_confirm_resets_password_with_valid_token(self, client, factory_user):
+        uid = urlsafe_base64_encode(force_bytes(factory_user.pk))
+        token = default_token_generator.make_token(factory_user)
+
+        response = client.post(reverse('password-reset-confirm'), {
+            'uid': uid,
+            'token': token,
+            'new_password': 'NewValidPass123!',
+        })
+
+        assert response.status_code == 200
+        factory_user.refresh_from_db()
+        assert factory_user.check_password('NewValidPass123!')
+        assert authenticate(email=factory_user.email, password='NewValidPass123!') == factory_user
+
+    def test_confirm_rejects_invalid_token(self, client, factory_user):
+        uid = urlsafe_base64_encode(force_bytes(factory_user.pk))
+
+        response = client.post(reverse('password-reset-confirm'), {
+            'uid': uid,
+            'token': 'invalid-token',
+            'new_password': 'NewValidPass123!',
+        })
+
+        assert response.status_code == 400
+        factory_user.refresh_from_db()
+        assert factory_user.check_password('testpass123!')
+
+    def test_confirm_rejects_weak_password(self, client, factory_user):
+        uid = urlsafe_base64_encode(force_bytes(factory_user.pk))
+        token = default_token_generator.make_token(factory_user)
+
+        response = client.post(reverse('password-reset-confirm'), {
+            'uid': uid,
+            'token': token,
+            'new_password': 'short',
+        })
+
+        assert response.status_code == 400
+        factory_user.refresh_from_db()
+        assert factory_user.check_password('testpass123!')
 
 @pytest.mark.django_db
 def test_csrf_endpoint(client):

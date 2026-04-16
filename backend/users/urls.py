@@ -21,6 +21,8 @@ urlpatterns = [
     path("auth/register/", views.RegisterView.as_view(), name="register"),
     path("auth/login/", views.LoginView.as_view(), name="login"),
     path("auth/logout/", views.LogoutView.as_view(), name="logout"),
+    path("auth/password-reset/", views.PasswordResetRequestView.as_view(), name="password-reset"),
+    path("auth/password-reset/confirm/", views.PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
     path("auth/me/", views.UserProfileView.as_view(), name="user-profile"),
     path("csrf/", get_csrf, name="csrf"),
 ]

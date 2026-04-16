@@ -1,4 +1,5 @@
 import os
+import logging
 from datetime import datetime
 
 import requests
@@ -10,6 +11,8 @@ from django.utils import timezone
 from .models import Stock
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 BVL_API_BASE = os.getenv('BVL_API_BASE', 'https://dataondemand.bvl.com.pe')
 BVL_API_KEY = os.getenv('BVL_API_KEY', '')
@@ -138,13 +141,48 @@ def fetch_data_for_companies(symbols):
     """
     Fetch stock data for multiple companies from the FMP API.
     """
-    api_key = os.getenv('FMP_API')
-    url = f'https://financialmodelingprep.com/api/v3/quote/{symbols}/?apikey={api_key}'
+    api_key = (os.getenv('FMP_API') or '').strip()
+    if not api_key:
+        logger.error(
+            "Missing FMP API key",
+            extra={"provider": "fmp", "symbols": symbols},
+        )
+        raise RuntimeError("FMP_API environment variable is required to fetch stock data")
 
     try:
-        response = requests.get(url)
+        timeout = float(os.getenv('FMP_API_TIMEOUT', '15'))
+    except (TypeError, ValueError):
+        timeout = 15.0
+
+    url = f'https://financialmodelingprep.com/api/v3/quote/{symbols}/'
+    logger.info(
+        "Fetching FMP quote data",
+        extra={"provider": "fmp", "symbols": symbols, "timeout": timeout},
+    )
+
+    try:
+        response = requests.get(url, params={'apikey': api_key}, timeout=timeout)
         response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching current price for {symbols}: {e}")
-        return None
+        data = response.json()
+    except requests.exceptions.RequestException as exc:
+        logger.exception(
+            "FMP quote request failed",
+            extra={"provider": "fmp", "symbols": symbols, "timeout": timeout},
+        )
+        raise RuntimeError(f"Error fetching current price for {symbols}: {exc}") from exc
+    except ValueError as exc:
+        logger.exception(
+            "FMP quote response was not valid JSON",
+            extra={"provider": "fmp", "symbols": symbols},
+        )
+        raise RuntimeError(f"Invalid FMP response for {symbols}") from exc
+
+    logger.info(
+        "Fetched FMP quote data",
+        extra={
+            "provider": "fmp",
+            "symbols": symbols,
+            "records": len(data) if isinstance(data, list) else None,
+        },
+    )
+    return data

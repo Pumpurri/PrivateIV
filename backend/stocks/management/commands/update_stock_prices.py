@@ -24,7 +24,11 @@ class Command(BaseCommand):
             symbols_str = ','.join(batch_symbols)
             
             self.stdout.write(f"Fetching prices for batch: {symbols_str}")
-            data = fetch_data_for_companies(symbols_str)
+            try:
+                data = fetch_data_for_companies(symbols_str)
+            except RuntimeError as exc:
+                self.stdout.write(self.style.ERROR(f"Failed to fetch prices for batch {symbols_str}: {exc}"))
+                continue
             
             if data:
                 for stock_info in data:

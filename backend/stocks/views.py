@@ -9,7 +9,7 @@ class StockListCreateView(generics.ListCreateAPIView):
     serializer_class = StockSerializer
     def get_permissions(self):
         if self.request.method == 'GET':
-            return [permissions.AllowAny()]
+            return [permissions.IsAuthenticated()]
         return [permissions.IsAdminUser()]
 
     def list(self, request, *args, **kwargs):
@@ -33,7 +33,7 @@ class StockRetrieveUpdateView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class StockRefreshStatusView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         status_obj = StockRefreshStatus.objects.order_by('-last_refreshed_at').first()

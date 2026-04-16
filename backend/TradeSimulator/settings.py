@@ -140,6 +140,14 @@ CORS_ALLOWED_ORIGINS = os.getenv(
 
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@tradesimulator.local')
+SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL', DEFAULT_FROM_EMAIL)
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+PASSWORD_RESET_URL_TEMPLATE = os.getenv(
+    'PASSWORD_RESET_URL_TEMPLATE',
+    f"{FRONTEND_URL.rstrip('/')}/reset-password?uid={{uid}}&token={{token}}"
+)
+
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL')
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_CACHE_BACKEND = 'django-cache'

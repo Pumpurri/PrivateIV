@@ -1,10 +1,30 @@
 from django.contrib.auth import login, logout, authenticate
+from django.conf import settings
+from django.core.mail import send_mail
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
+import logging
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser, AllowAny, IsAuthenticated
 from .models import CustomUser
-from .serializers import UserCreateSerializer, CustomUserSerializer
+from .serializers import (
+    UserCreateSerializer,
+    CustomUserSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _password_reset_response():
+    return {
+        "detail": "If an account exists for that email, password reset instructions have been sent.",
+        "support_email": settings.SUPPORT_EMAIL,
+    }
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
@@ -54,6 +74,50 @@ class LogoutView(APIView):
         response = Response({"detail": "Logged out"})
         return response
 
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email']
+        user = CustomUser.objects.filter(email__iexact=email, is_active=True).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = settings.PASSWORD_RESET_URL_TEMPLATE.format(uid=uid, token=token)
+            try:
+                send_mail(
+                    subject="Reset your password",
+                    message=(
+                        f"Hi {user.short_name},\n\n"
+                        f"Use this link to reset your password:\n{reset_url}\n\n"
+                        "If you did not request this, you can ignore this email."
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception:
+                logger.exception(
+                    "Password reset email failed",
+                    extra={"user_id": user.id, "email": user.email},
+                )
+
+        return Response(_password_reset_response(), status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"detail": "Password has been reset."}, status=status.HTTP_200_OK)
+
 class UserList(generics.ListCreateAPIView):
     """
     Allows admins to list all users.
@@ -82,11 +146,3 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
-
-
-
-# TODO: Add a view for password change
-
-
-
-# Possibly change email, email verification (and resend), deactivate account

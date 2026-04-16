@@ -2,10 +2,11 @@ import pytest
 import uuid
 from datetime import timedelta
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 from portfolio.models import Transaction
-from portfolio.tests.factories import TransactionFactory
+from portfolio.tests.factories import PortfolioFactory, TransactionFactory
 from stocks.tests.factories import StockFactory
 from users.tests.factories import UserFactory
 from decimal import Decimal
@@ -66,6 +67,128 @@ class TestTransactionHistory:
         response = self.client.get(f"{reverse('transaction-list')}?portfolio={portfolio1.id}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()['count'] == 4
+
+    def test_filters_by_portfolio_type_symbol_and_date_range(self):
+        user = UserFactory()
+        portfolio = PortfolioFactory(user=user, is_default=False, cash_balance=Decimal('10000.00'))
+        other_portfolio = PortfolioFactory(user=user, is_default=False, cash_balance=Decimal('10000.00'))
+        aapl = StockFactory(symbol='AAPL', current_price=Decimal('10.00'), currency='PEN')
+        msft = StockFactory(symbol='MSFT', current_price=Decimal('20.00'), currency='PEN')
+
+        old_aapl = TransactionFactory(
+            portfolio=portfolio,
+            buy=True,
+            stock=aapl,
+            quantity=3,
+        )
+        matching_aapl = TransactionFactory(
+            portfolio=portfolio,
+            buy=True,
+            stock=aapl,
+            quantity=2,
+        )
+        TransactionFactory(
+            portfolio=portfolio,
+            buy=True,
+            stock=msft,
+            quantity=2,
+        )
+        TransactionFactory(
+            portfolio=other_portfolio,
+            buy=True,
+            stock=aapl,
+            quantity=2,
+        )
+
+        now = timezone.now()
+        Transaction.all_objects.filter(pk=old_aapl.pk).update(timestamp=now - timedelta(days=10))
+        Transaction.all_objects.filter(pk=matching_aapl.pk).update(timestamp=now - timedelta(days=1))
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('transaction-list'),
+            {
+                'portfolio': portfolio.id,
+                'type': Transaction.TransactionType.BUY,
+                'symbol': 'aapl',
+                'date_from': (now - timedelta(days=2)).date().isoformat(),
+                'date_to': now.date().isoformat(),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data['count'] == 1
+        assert data['totals']['count'] == 1
+        assert data['totals']['amount'] == '20.00'
+        assert data['totals']['quantity'] == 2
+        assert data['totals']['by_type']['BUY'] == {
+            'count': 1,
+            'amount': '20.00',
+            'quantity': 2,
+        }
+        assert data['results'][0]['id'] == matching_aapl.id
+        assert data['results'][0]['stock_symbol'] == 'AAPL'
+
+    def test_transaction_totals_use_filtered_queryset_not_page(self):
+        user = UserFactory()
+        portfolio = PortfolioFactory(user=user, is_default=False)
+
+        for _ in range(25):
+            TransactionFactory(
+                portfolio=portfolio,
+                deposit=True,
+                amount=Decimal('1.00'),
+            )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('transaction-list'),
+            {
+                'portfolio': portfolio.id,
+                'type': Transaction.TransactionType.DEPOSIT,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data['count'] == 25
+        assert len(data['results']) == 20
+        assert data['totals']['count'] == 25
+        assert data['totals']['amount'] == '25.00'
+        assert data['totals']['quantity'] == 0
+        assert data['totals']['net_cash_flow'] == '25.00'
+        assert data['totals']['by_type']['DEPOSIT'] == {
+            'count': 25,
+            'amount': '25.00',
+            'quantity': 0,
+        }
+
+    def test_transaction_filters_validate_invalid_values(self):
+        user = UserFactory()
+        self.client.force_authenticate(user=user)
+
+        invalid_type_response = self.client.get(
+            reverse('transaction-list'),
+            {'type': 'DIVIDEND'},
+        )
+        invalid_date_response = self.client.get(
+            reverse('transaction-list'),
+            {'date_from': 'not-a-date'},
+        )
+        invalid_portfolio_response = self.client.get(
+            reverse('transaction-list'),
+            {'portfolio': 'not-an-id'},
+        )
+        zero_portfolio_response = self.client.get(
+            reverse('transaction-list'),
+            {'portfolio': '0'},
+        )
+
+        assert invalid_type_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert invalid_date_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert invalid_portfolio_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert zero_portfolio_response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_response_structure(self):
         pass

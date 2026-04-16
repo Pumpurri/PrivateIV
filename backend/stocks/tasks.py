@@ -1,10 +1,13 @@
 from celery import shared_task
+import logging
 from math import ceil
 
 from django.utils import timezone
 
 from .models import Stock, StockRefreshStatus
 from .services import fetch_bvl_market_data, fetch_data_for_companies
+
+logger = logging.getLogger(__name__)
 
 COMPANIES = [
     {'symbol': 'AAPL', 'name': 'Apple Inc.'},
@@ -92,6 +95,9 @@ COMPANIES = [
     {'symbol': 'SCHW', 'name': 'Charles Schwab Corp.'},
 ]
 
+# Backward-compatible alias used by older tests/imports.
+companies = COMPANIES
+
 
 def batch_companies(companies, batch_size=20):
     """
@@ -107,12 +113,19 @@ def update_local_stock_prices():
     """
     try:
         records = fetch_bvl_market_data()
-    except RuntimeError as exc:
-        print(f"[stocks] Failed to fetch BVL data: {exc}")
-        return
+    except RuntimeError:
+        logger.exception(
+            "Failed to fetch BVL stock data",
+            extra={"provider": "bvl"},
+        )
+        return False
 
     if not records:
-        return
+        logger.info(
+            "Fetched BVL stock data with no records",
+            extra={"provider": "bvl", "records": 0},
+        )
+        return True
 
     for item in records:
         defaults = {
@@ -124,6 +137,12 @@ def update_local_stock_prices():
             'is_local': True,
         }
         Stock.objects.update_or_create(symbol=item['symbol'], defaults=defaults)
+
+    logger.info(
+        "Updated BVL stock prices",
+        extra={"provider": "bvl", "records": len(records)},
+    )
+    return True
 
 
 def update_us_stock_prices(data):
@@ -158,20 +177,54 @@ def fetch_stock_prices():
     This updates Stock.current_price only (for intraday updates).
     For end-of-day historical prices, use fetch_eod_prices() instead.
     """
+    successful_upstream_calls = 0
+
     # TODO: split BVL ingestion into its own scheduled task so it can
     # continue refreshing after NYSE-specific schedules pause.
-    update_local_stock_prices()
+    if update_local_stock_prices():
+        successful_upstream_calls += 1
 
     batches = batch_companies(COMPANIES, batch_size=20)
 
     for batch in batches:
         symbols = ','.join([company['symbol'] for company in batch])
-        data = fetch_data_for_companies(symbols)
+        try:
+            data = fetch_data_for_companies(symbols)
+        except RuntimeError:
+            logger.exception(
+                "Failed to fetch US stock data batch",
+                extra={"provider": "fmp", "symbols": symbols},
+            )
+            continue
+
+        if data is None:
+            logger.error(
+                "FMP stock data batch returned no response",
+                extra={"provider": "fmp", "symbols": symbols},
+            )
+            continue
+
+        successful_upstream_calls += 1
 
         if data:
             update_us_stock_prices(data)
 
-        print(f"Updated stock prices for batch: {symbols}")
+        logger.info(
+            "Processed US stock price batch",
+            extra={
+                "provider": "fmp",
+                "symbols": symbols,
+                "records": len(data) if isinstance(data, list) else None,
+            },
+        )
+
+    if successful_upstream_calls == 0:
+        logger.error(
+            "Stock refresh failed because all upstream calls failed",
+            extra={"task": "fetch_stock_prices"},
+        )
+        raise RuntimeError("Stock refresh failed because all upstream calls failed")
+
     StockRefreshStatus.mark_refreshed(timezone.now())
 
 
@@ -186,10 +239,12 @@ def fetch_eod_prices():
     from stocks.models import HistoricalStockPrice
 
     today = timezone.now().date()
+    successful_upstream_calls = 0
 
     # Fetch BVL stocks and save historical
     try:
         records = fetch_bvl_market_data()
+        successful_upstream_calls += 1
         if records:
             for item in records:
                 defaults = {
@@ -213,15 +268,34 @@ def fetch_eod_prices():
                         date=today,
                         defaults={'price': current_price}
                     )
-    except RuntimeError as exc:
-        print(f"[stocks] Failed to fetch BVL EOD data: {exc}")
+    except RuntimeError:
+        logger.exception(
+            "Failed to fetch BVL EOD stock data",
+            extra={"provider": "bvl"},
+        )
 
     # Fetch US stocks and save historical
     batches = batch_companies(COMPANIES, batch_size=20)
 
     for batch in batches:
         symbols = ','.join([company['symbol'] for company in batch])
-        data = fetch_data_for_companies(symbols)
+        try:
+            data = fetch_data_for_companies(symbols)
+        except RuntimeError:
+            logger.exception(
+                "Failed to fetch US EOD stock data batch",
+                extra={"provider": "fmp", "symbols": symbols},
+            )
+            continue
+
+        if data is None:
+            logger.error(
+                "FMP EOD stock data batch returned no response",
+                extra={"provider": "fmp", "symbols": symbols},
+            )
+            continue
+
+        successful_upstream_calls += 1
 
         if data:
             for stock_info in data:
@@ -249,8 +323,24 @@ def fetch_eod_prices():
                         defaults={'price': current_price}
                     )
 
-        print(f"Saved EOD prices for batch: {symbols}")
+        logger.info(
+            "Processed US EOD stock price batch",
+            extra={
+                "provider": "fmp",
+                "symbols": symbols,
+                "records": len(data) if isinstance(data, list) else None,
+            },
+        )
+
+    if successful_upstream_calls == 0:
+        logger.error(
+            "EOD stock refresh failed because all upstream calls failed",
+            extra={"task": "fetch_eod_prices", "date": str(today)},
+        )
+        raise RuntimeError("EOD stock refresh failed because all upstream calls failed")
 
     StockRefreshStatus.mark_refreshed(timezone.now())
-    print(f"EOD prices saved for {today}")
-
+    logger.info(
+        "EOD prices saved",
+        extra={"task": "fetch_eod_prices", "date": str(today)},
+    )

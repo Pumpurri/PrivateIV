@@ -11,7 +11,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from stocks.models import Stock
-from stocks.tasks import fetch_stock_prices, companies
+from stocks.tasks import fetch_stock_prices, COMPANIES as companies
 from stocks.serializers import StockSerializer
 from stocks.tests.factories import StockFactory
 
@@ -158,13 +158,28 @@ class TestStockSerializer:
 
 @pytest.mark.django_db
 class TestStockViews:
-    def test_retrieve_stock_list(self, client, sample_stock):
+    def test_retrieve_stock_list(self, client, regular_user, sample_stock):
         """Test stock list endpoint"""
+        client.force_authenticate(regular_user)
         response = client.get(reverse('stock-list'))
         assert response.status_code == status.HTTP_200_OK
         assert response.data['count'] == 1
         assert len(response.data['results']) == 1
         assert response.data['results'][0]['symbol'] == 'AMZN'
+
+    def test_stock_list_requires_authentication(self, client, sample_stock):
+        response = client.get(reverse('stock-list'))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_stock_refresh_status_requires_authentication(self, client):
+        response = client.get(reverse('stock-last-refresh'))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_authenticated_user_can_read_stock_refresh_status(self, client, regular_user):
+        client.force_authenticate(regular_user)
+        response = client.get(reverse('stock-last-refresh'))
+        assert response.status_code == status.HTTP_200_OK
+        assert 'last_refreshed_at' in response.data
 
     def test_admin_create_stock(self, client, admin_user):
         client.force_authenticate(admin_user)
