@@ -1,5 +1,6 @@
 import pytest
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from portfolio.services.fx_service import get_fx_rate
@@ -63,3 +64,19 @@ def test_fx_rate_other_type_fallback():
     r = get_fx_rate(today, 'PEN', 'USD', rate_type='compra', session='cierre')
     assert r == Decimal('3.600000')
 
+
+@pytest.mark.django_db
+def test_fx_rate_missing_returns_one_for_non_strict_display():
+    today = timezone.now().date()
+
+    r = get_fx_rate(today, 'PEN', 'USD', rate_type='compra', session='cierre')
+
+    assert r == Decimal('1')
+
+
+@pytest.mark.django_db
+def test_fx_rate_missing_raises_when_required():
+    today = timezone.now().date()
+
+    with pytest.raises(ValidationError, match="Missing FX rate"):
+        get_fx_rate(today, 'PEN', 'USD', rate_type='compra', session='cierre', require_rate=True)

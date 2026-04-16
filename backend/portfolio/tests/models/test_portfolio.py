@@ -204,7 +204,7 @@ class TestPortfolioValuation:
             cash_balance=Decimal('10000.00')
         )
 
-        stock = StockFactory(current_price=Decimal('100.00'))
+        stock = StockFactory(current_price=Decimal('100.00'), currency='PEN')
 
         # Create through manager to ensure proper relationships
         holding = test_portfolio.holdings.process_purchase(

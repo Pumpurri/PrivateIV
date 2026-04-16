@@ -54,7 +54,7 @@ class TestRealizedPNLModel:
             is_default=False,
             cash_balance=Decimal('10000.00')
         )
-        stock = StockFactory(current_price=Decimal('100.00'))
+        stock = StockFactory(current_price=Decimal('100.00'), currency='PEN')
         
         # Create holding and sell transaction on non-default portfolio
         holding = HoldingFactory(

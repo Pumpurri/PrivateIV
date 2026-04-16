@@ -39,15 +39,16 @@ class PortfolioListView(generics.ListCreateAPIView):
         if amount <= Decimal('0'):
             raise ValidationError({'initial_deposit': 'Initial deposit must be greater than 0.'})
 
-        # Create portfolio, then create a DEPOSIT transaction to fund it
-        portfolio = serializer.save(user=self.request.user, is_default=False)
-        tx_data = {
-            'portfolio': portfolio,
-            'idempotency_key': uuid.uuid4(),
-            'transaction_type': Transaction.TransactionType.DEPOSIT,
-            'amount': amount,
-        }
-        TransactionService.execute_transaction(tx_data)
+        # Create portfolio and initial funding as one unit.
+        with transaction.atomic():
+            portfolio = serializer.save(user=self.request.user, is_default=False)
+            tx_data = {
+                'portfolio': portfolio,
+                'idempotency_key': uuid.uuid4(),
+                'transaction_type': Transaction.TransactionType.DEPOSIT,
+                'amount': amount,
+            }
+            TransactionService.execute_transaction(tx_data)
 
 
 class PortfolioDetailView(generics.RetrieveUpdateDestroyAPIView):

@@ -1,4 +1,5 @@
 import pytest
+import uuid
 from datetime import timedelta
 from django.urls import reverse
 from rest_framework import status
@@ -29,7 +30,7 @@ class TestTransactionHistory:
         t1 = TransactionFactory(
             portfolio=portfolio1,
             buy=True,
-            stock=StockFactory(current_price=Decimal('50.00')),
+            stock=StockFactory(current_price=Decimal('50.00'), currency='PEN'),
             quantity=100
         )
         t2 = TransactionFactory(portfolio__user=user2, deposit=True)
@@ -49,9 +50,9 @@ class TestTransactionHistory:
         portfolio1 = user.portfolios.first()
 
         stocks = [
-            StockFactory(current_price=Decimal('30.00')), 
-            StockFactory(current_price=Decimal('30.00')),
-            StockFactory(current_price=Decimal('30.00'))
+            StockFactory(current_price=Decimal('30.00'), currency='PEN'),
+            StockFactory(current_price=Decimal('30.00'), currency='PEN'),
+            StockFactory(current_price=Decimal('30.00'), currency='PEN')
         ]
         for stock in stocks:
             TransactionFactory(
@@ -68,6 +69,73 @@ class TestTransactionHistory:
 
     def test_response_structure(self):
         pass
+
+    def test_create_transaction_resolves_user_throttle_rate(self):
+        user = UserFactory()
+        self.client.force_authenticate(user=user)
+
+        response = self.client.post(
+            reverse('transaction-create'),
+            {
+                'transaction_type': Transaction.TransactionType.DEPOSIT,
+                'amount': '50.00',
+                'idempotency_key': str(uuid.uuid4()),
+            },
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Transaction.objects.filter(
+            portfolio__user=user,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('50.00'),
+        ).exists()
+
+    def test_create_transaction_generates_idempotency_key_when_absent(self):
+        user = UserFactory()
+        self.client.force_authenticate(user=user)
+
+        response = self.client.post(
+            reverse('transaction-create'),
+            {
+                'transaction_type': Transaction.TransactionType.DEPOSIT,
+                'amount': '75.00',
+            },
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data['idempotency_key']
+        assert Transaction.objects.filter(
+            id=data['id'],
+            portfolio__user=user,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('75.00'),
+        ).exists()
+
+    def test_create_transaction_accepts_client_idempotency_key_for_retries(self):
+        user = UserFactory()
+        self.client.force_authenticate(user=user)
+        key = str(uuid.uuid4())
+        payload = {
+            'transaction_type': Transaction.TransactionType.DEPOSIT,
+            'amount': '85.00',
+            'idempotency_key': key,
+        }
+
+        first = self.client.post(reverse('transaction-create'), payload, format='json')
+        second = self.client.post(reverse('transaction-create'), payload, format='json')
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert second.json()['id'] == first.json()['id']
+        assert Transaction.objects.filter(
+            portfolio__user=user,
+            idempotency_key=key,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('85.00'),
+        ).count() == 1
 
     def test_pagination(self):
         user = UserFactory()

@@ -2,8 +2,9 @@ import pytest
 from decimal import Decimal
 from django.urls import reverse
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
-from portfolio.models import Portfolio, Holding, PortfolioPerformance
+from portfolio.models import Portfolio, Holding, PortfolioPerformance, Transaction
 from portfolio.tests.factories import PortfolioFactory, HoldingFactory
 from stocks.tests.factories import StockFactory
 from users.tests.factories import UserFactory
@@ -76,6 +77,55 @@ class TestPortfolioListView:
         # Check calculated values
         assert portfolio_data['holdings_count'] == 1
         assert Decimal(portfolio_data['current_investment_value']) == Decimal('1500.00')  # 10 * 150
+
+    def test_create_portfolio_with_initial_deposit(self):
+        user = UserFactory.create()
+        self.client.force_authenticate(user=user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'name': 'Trading Portfolio',
+                'description': 'Short term account',
+                'initial_deposit': '500.00',
+            },
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        portfolio = Portfolio.objects.get(id=response.data['id'])
+        assert portfolio.user == user
+        assert portfolio.cash_balance == Decimal('500.00')
+        assert Transaction.objects.filter(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('500.00'),
+        ).exists()
+
+    def test_create_portfolio_rolls_back_if_initial_deposit_fails(self, monkeypatch):
+        user = UserFactory.create()
+        self.client.force_authenticate(user=user)
+
+        def fail_deposit(_tx_data):
+            raise ValidationError({'initial_deposit': 'Deposit failed.'})
+
+        monkeypatch.setattr(
+            'portfolio.views.portfolio_views.TransactionService.execute_transaction',
+            fail_deposit,
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                'name': 'Failed Portfolio',
+                'description': 'Should not persist',
+                'initial_deposit': '500.00',
+            },
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Portfolio.objects.filter(user=user, name='Failed Portfolio').exists()
 
 
 @pytest.mark.django_db 

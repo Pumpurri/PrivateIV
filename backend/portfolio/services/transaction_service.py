@@ -9,6 +9,7 @@ from portfolio.services.fx_service import get_fx_rate
 from django.utils import timezone
 from django.utils.timezone import localtime
 from datetime import time
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,9 @@ class TransactionService:
     @classmethod
     def execute_transaction(cls, transaction_data):
         """Idempotent transaction processing with duplicate detection"""
+        transaction_data = dict(transaction_data)
+        transaction_data['idempotency_key'] = transaction_data.get('idempotency_key') or uuid4()
+
         with span(
             "transaction.execute",
             resource=str(transaction_data.get('transaction_type')),
@@ -111,7 +115,14 @@ class TransactionService:
         # Apply FX only when stock currency differs from portfolio base
         if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
             # BUY (PEN -> USD): use 'venta' (bank sells USD)
-            fx = get_fx_rate(timezone.now().date(), portfolio.base_currency, stock.currency, rate_type='venta', session=session)
+            fx = get_fx_rate(
+                timezone.now().date(),
+                portfolio.base_currency,
+                stock.currency,
+                rate_type='venta',
+                session=session,
+                require_rate=True
+            )
             logger.info(f"[FX DEBUG] Buying {stock.symbol}: stock.currency={stock.currency}, portfolio.base={portfolio.base_currency}, fx_rate={fx}, session={session}")
             total_cost_base = (total_cost_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             price_per_share_base = (current_price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -147,7 +158,7 @@ class TransactionService:
             holding = portfolio.holdings.get(stock=stock)
         except Holding.DoesNotExist:
             raise ValidationError("Cannot sell stock not held in portfolio")
-        pnl_value = (current_price - holding.average_purchase_price) * quantity
+        purchase_price_base = holding.average_purchase_price
         
         # Determine FX session
         try:
@@ -158,12 +169,25 @@ class TransactionService:
         session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
         if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
             # SELL (USD -> PEN): use 'compra' (bank buys USD)
-            fx = get_fx_rate(timezone.now().date(), portfolio.base_currency, stock.currency, rate_type='compra', session=session)
+            fx = get_fx_rate(
+                timezone.now().date(),
+                portfolio.base_currency,
+                stock.currency,
+                rate_type='compra',
+                session=session,
+                require_rate=True
+            )
             total_revenue_base = (total_revenue_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            sell_price_base = (current_price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             transaction.fx_rate = fx
             transaction.fx_rate_type = 'compra'
         else:
             total_revenue_base = total_revenue_native
+            sell_price_base = current_price
+
+        pnl_value = ((sell_price_base - purchase_price_base) * Decimal(quantity)).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
 
         with span("transaction.sell", resource=str(stock.symbol), tags={"quantity": quantity}):
             portfolio.holdings.process_sale(
@@ -175,7 +199,8 @@ class TransactionService:
 
         # Store PNL data for post-processing
         transaction._pnl_data = {
-            'holding_average_price': holding.average_purchase_price,
+            'purchase_price': purchase_price_base,
+            'sell_price': sell_price_base,
             'pnl_value': pnl_value,
             'acquisition_date': holding.created_at  # Track when shares were acquired
         }
@@ -263,8 +288,8 @@ class TransactionService:
                 transaction=transaction,
                 stock=transaction.stock,
                 quantity=transaction.quantity,
-                purchase_price=pnl_data['holding_average_price'],
-                sell_price=transaction.executed_price,
+                purchase_price=pnl_data['purchase_price'],
+                sell_price=pnl_data['sell_price'],
                 pnl=pnl_data['pnl_value'],
                 acquisition_date=pnl_data.get('acquisition_date')  # Save acquisition date for holding period
             )
