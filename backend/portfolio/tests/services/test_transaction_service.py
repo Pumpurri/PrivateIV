@@ -1,9 +1,12 @@
 import pytest
+import uuid
 from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 from portfolio.tests.factories import TransactionFactory, PortfolioFactory
-from portfolio.models import RealizedPNL
+from portfolio.models import RealizedPNL, FXRate, Transaction
+from portfolio.services.transaction_service import TransactionService
 
 @pytest.mark.django_db
 class TestTransactionProcessor:
@@ -61,6 +64,31 @@ class TestTransactionPNLHandling:
 
         portfolio.performance.refresh_from_db()
         assert portfolio.performance.total_deposits == initial_deposits + deposit.amount
+
+    def test_service_generates_idempotency_key_when_absent(self, portfolio):
+        transaction = TransactionService.execute_transaction({
+            'portfolio': portfolio,
+            'transaction_type': 'DEPOSIT',
+            'amount': Decimal('25.00'),
+        })
+
+        assert transaction.idempotency_key is not None
+        assert transaction.amount == Decimal('25.00')
+
+    def test_service_accepts_client_idempotency_key_for_retries(self, portfolio):
+        key = uuid.uuid4()
+        payload = {
+            'portfolio': portfolio,
+            'transaction_type': 'DEPOSIT',
+            'amount': Decimal('25.00'),
+            'idempotency_key': key,
+        }
+
+        first = TransactionService.execute_transaction(payload)
+        second = TransactionService.execute_transaction(payload)
+
+        assert second.id == first.id
+        assert Transaction.all_objects.filter(portfolio=portfolio, idempotency_key=key).count() == 1
 
     def test_sell_transaction_zero_pnl(self, portfolio, stock):
         TransactionFactory(
@@ -190,6 +218,55 @@ class TestTransactionPNLHandling:
         pnl = sell.realized_pnl
         expected = (Decimal('90.00') - Decimal('75.00')) * 10
         assert pnl.pnl == expected.quantize(Decimal('0.01'))
+
+    def test_realized_pnl_for_cross_currency_sell_uses_portfolio_base_currency(self, portfolio, stock):
+        portfolio.base_currency = 'PEN'
+        portfolio.save(update_fields=['base_currency'])
+        stock.currency = 'USD'
+        stock.current_price = Decimal('10.00')
+        stock.save(update_fields=['currency', 'current_price'])
+
+        today = timezone.now().date()
+        for session in ('intraday', 'cierre'):
+            FXRate.objects.create(
+                date=today,
+                base_currency='PEN',
+                quote_currency='USD',
+                rate=Decimal('3.80'),
+                rate_type='venta',
+                session=session,
+            )
+            FXRate.objects.create(
+                date=today,
+                base_currency='PEN',
+                quote_currency='USD',
+                rate=Decimal('3.50'),
+                rate_type='compra',
+                session=session,
+            )
+
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='BUY',
+            stock=stock,
+            quantity=2
+        )
+
+        stock.current_price = Decimal('12.00')
+        stock.save(update_fields=['current_price'])
+
+        sell = TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='SELL',
+            stock=stock,
+            quantity=2
+        )
+
+        pnl = sell.realized_pnl
+        assert sell.executed_price == Decimal('12.00')
+        assert pnl.purchase_price == Decimal('38.00')
+        assert pnl.sell_price == Decimal('42.00')
+        assert pnl.pnl == Decimal('8.00')
 
     def test_realized_pnl_is_immutable(self, sell_transaction):
         pnl = sell_transaction.realized_pnl

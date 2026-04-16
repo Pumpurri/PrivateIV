@@ -28,7 +28,7 @@ class TestPortfolioRealizedView:
         portfolio = user.portfolios.first()
 
         # Create buy then sell to generate realized PnL
-        stock = StockFactory(symbol='GAIN', current_price=Decimal('100.00'))
+        stock = StockFactory(symbol='GAIN', current_price=Decimal('100.00'), currency='PEN')
         TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock, quantity=10)
         stock.current_price = Decimal('120.00')
         stock.save()
@@ -54,13 +54,13 @@ class TestPortfolioRealizedView:
         user = UserFactory()
         portfolio = user.portfolios.first()
 
-        stock_gain = StockFactory(symbol='GAIN', current_price=Decimal('100.00'))
+        stock_gain = StockFactory(symbol='GAIN', current_price=Decimal('100.00'), currency='PEN')
         TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock_gain, quantity=5)
         stock_gain.current_price = Decimal('110.00')
         stock_gain.save()
         TransactionFactory(transaction_type='SELL', portfolio=portfolio, stock=stock_gain, quantity=5)
 
-        stock_loss = StockFactory(symbol='LOSS', current_price=Decimal('50.00'))
+        stock_loss = StockFactory(symbol='LOSS', current_price=Decimal('50.00'), currency='PEN')
         TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock_loss, quantity=5)
         stock_loss.current_price = Decimal('40.00')
         stock_loss.save()
@@ -76,7 +76,7 @@ class TestPortfolioRealizedView:
     def test_date_filter(self):
         user = UserFactory()
         portfolio = user.portfolios.first()
-        stock = StockFactory(symbol='OLD', current_price=Decimal('100.00'))
+        stock = StockFactory(symbol='OLD', current_price=Decimal('100.00'), currency='PEN')
 
         # Old transaction (last year)
         TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock, quantity=10)
@@ -88,7 +88,7 @@ class TestPortfolioRealizedView:
         )
 
         # Recent transaction
-        stock_recent = StockFactory(symbol='NEW', current_price=Decimal('80.00'))
+        stock_recent = StockFactory(symbol='NEW', current_price=Decimal('80.00'), currency='PEN')
         TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock_recent, quantity=4)
         stock_recent.current_price = Decimal('90.00')
         stock_recent.save()

@@ -15,7 +15,8 @@ def stock():
     return StockFactory.create(
         symbol='TEST',
         name='Test Stock',
-        current_price=Decimal('100.00')
+        current_price=Decimal('100.00'),
+        currency='PEN'
     )
 
 @pytest.fixture
@@ -75,7 +76,7 @@ def portfolio_with_history(user_factory):
         timezone.now()
     ]
     
-    stock = StockFactory(current_price=Decimal('100.00'))
+    stock = StockFactory(current_price=Decimal('100.00'), currency='PEN')
     
     for idx, txn_date in enumerate(dates):
         with timezone.override(datetime_timezone.utc):
@@ -95,7 +96,7 @@ def real_loss_portfolio(user_factory):
     user = user_factory.create()
     portfolio = user.portfolios.get(is_default=True)
 
-    stock = StockFactory(current_price=Decimal('50.00'))
+    stock = StockFactory(current_price=Decimal('50.00'), currency='PEN')
 
     # Buy at $50 (real money out)
     TransactionFactory(

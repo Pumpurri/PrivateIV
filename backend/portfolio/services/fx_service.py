@@ -1,20 +1,30 @@
 from decimal import Decimal
 import logging
 from django.apps import apps
-from datetime import timedelta
+from django.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
 
-def get_fx_rate(snapshot_date, base_currency, quote_currency, rate_type='compra', session='cierre'):
+def _missing_fx_rate_error(snapshot_date, base_currency, quote_currency, rate_type, session):
+    return ValidationError(
+        f"Missing FX rate for {quote_currency}->{base_currency} on or before {snapshot_date} "
+        f"(rate_type={rate_type}, session={session})"
+    )
+
+
+def get_fx_rate(snapshot_date, base_currency, quote_currency, rate_type='compra', session='cierre', require_rate=False):
     """Resolve FX for converting 1 quote unit to base units on a date, honoring rate type and session.
 
     - rate_type: 'compra' (USD->PEN), 'venta' (PEN->USD), 'mid'
     - session: 'intraday' or 'cierre'
     Fallbacks: exact date+session+type -> exact date other session -> latest prior same type (any session)
                -> latest prior other type (any session). If still missing, 1 for identical currencies else 1 with log.
+    - require_rate: when True, raise ValidationError instead of returning the missing-rate fallback.
     """
     if not base_currency or not quote_currency:
+        if require_rate:
+            raise _missing_fx_rate_error(snapshot_date, base_currency, quote_currency, rate_type, session)
         return Decimal('1')
 
     if base_currency == quote_currency:
@@ -73,10 +83,19 @@ def get_fx_rate(snapshot_date, base_currency, quote_currency, rate_type='compra'
         if rate:
             return Decimal(rate)
 
+        if require_rate:
+            logger.error(
+                f"Missing FX rate for {quote_currency}->{base_currency} on or before {snapshot_date}; failing strict lookup"
+            )
+            raise _missing_fx_rate_error(snapshot_date, base_currency, quote_currency, rate_type, session)
         logger.error(
             f"Missing FX rate for {quote_currency}->{base_currency} on or before {snapshot_date}; using 1.0"
         )
         return Decimal('1')
+    except ValidationError:
+        raise
     except Exception as e:
         logger.exception(f"FX resolution error: {quote_currency}->{base_currency} on {snapshot_date}: {e}")
+        if require_rate:
+            raise _missing_fx_rate_error(snapshot_date, base_currency, quote_currency, rate_type, session) from e
         return Decimal('1')

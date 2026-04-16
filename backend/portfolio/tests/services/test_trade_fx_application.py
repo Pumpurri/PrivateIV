@@ -1,16 +1,16 @@
 import pytest
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from portfolio.tests.factories import TransactionFactory
-from portfolio.models import Transaction
+from portfolio.models import Holding, Transaction
 from portfolio.models import FXRate
 from stocks.models import Stock
 
 
 @pytest.mark.django_db
 def test_buy_uses_venta_rate_for_cash():
-    user_portfolio = None
     from users.tests.factories import UserFactory
     u = UserFactory()
     p = u.portfolios.get(is_default=True)
@@ -52,3 +52,43 @@ def test_sell_uses_venta_rate_for_cash():
     TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.SELL, stock=s, quantity=1)
     p.refresh_from_db()
     assert p.cash_balance == cash_before + Decimal('35.50')
+
+
+@pytest.mark.django_db
+def test_cross_currency_buy_requires_real_fx_rate():
+    from users.tests.factories import UserFactory
+    u = UserFactory()
+    p = u.portfolios.get(is_default=True)
+    s = Stock.objects.create(symbol='NOFXB', name='No FX Buy', currency='USD', current_price=Decimal('10.00'))
+
+    cash_before = p.cash_balance
+    with pytest.raises(ValidationError, match="Missing FX rate"):
+        TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.BUY, stock=s, quantity=1)
+
+    p.refresh_from_db()
+    assert p.cash_balance == cash_before
+    assert not p.holdings.filter(stock=s).exists()
+    assert not Transaction.all_objects.filter(portfolio=p, stock=s, transaction_type=Transaction.TransactionType.BUY).exists()
+
+
+@pytest.mark.django_db
+def test_cross_currency_sell_requires_real_fx_rate():
+    from users.tests.factories import UserFactory
+    u = UserFactory()
+    p = u.portfolios.get(is_default=True)
+    s = Stock.objects.create(symbol='NOFXS', name='No FX Sell', currency='USD', current_price=Decimal('10.00'))
+    Holding.objects.create(
+        portfolio=p,
+        stock=s,
+        quantity=1,
+        average_purchase_price=Decimal('38.00'),
+    )
+
+    cash_before = p.cash_balance
+    with pytest.raises(ValidationError, match="Missing FX rate"):
+        TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.SELL, stock=s, quantity=1)
+
+    p.refresh_from_db()
+    assert p.cash_balance == cash_before
+    assert p.holdings.get(stock=s).quantity == 1
+    assert not Transaction.all_objects.filter(portfolio=p, stock=s, transaction_type=Transaction.TransactionType.SELL).exists()

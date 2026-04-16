@@ -23,14 +23,14 @@ def test_mixed_currency_snapshot_uses_base_currency(user_factory):
     usd = Stock.objects.create(symbol='USD1', name='USD Asset', currency='USD', current_price=Decimal('10.00'))
     pen = Stock.objects.create(symbol='PEN1', name='PEN Asset', currency='PEN', current_price=Decimal('10.00'))
 
+    # FX: 1 USD = 3.50 PEN today
+    today = timezone.now().date()
+    FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.50'), rate_type='venta')
+
     # Fund portfolio and buy 1 share each via TransactionService
     TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.DEPOSIT, amount=Decimal('1000.00'))
     TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.BUY, stock=usd, quantity=1)
     TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.BUY, stock=pen, quantity=1)
-
-    # FX: 1 USD = 3.50 PEN today
-    today = timezone.now().date()
-    FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.50'))
 
     # Snapshot today
     snap = SnapshotService.create_daily_snapshot(p, date=today)
@@ -51,13 +51,13 @@ def test_fx_fallback_uses_prior_rate(user_factory):
     p.save()
 
     usd = Stock.objects.create(symbol='USD2', name='USD Asset 2', currency='USD', current_price=Decimal('20.00'))
-    TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.DEPOSIT, amount=Decimal('1000.00'))
-    TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.BUY, stock=usd, quantity=1)
-
     today = timezone.now().date()
     prior = today - timezone.timedelta(days=1)
     # Only prior rate exists
-    FXRate.objects.create(date=prior, base_currency='PEN', quote_currency='USD', rate=Decimal('4.00'))
+    FXRate.objects.create(date=prior, base_currency='PEN', quote_currency='USD', rate=Decimal('4.00'), rate_type='venta')
+
+    TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.DEPOSIT, amount=Decimal('1000.00'))
+    TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.BUY, stock=usd, quantity=1)
 
     snap = SnapshotService.create_daily_snapshot(p, date=today)
     # Expect conversion using prior rate: 20 * 4 = 80
