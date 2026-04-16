@@ -3,7 +3,7 @@ from .models import Stock, StockRefreshStatus
 from decimal import Decimal, ROUND_HALF_UP
 
 class StockSerializer(serializers.ModelSerializer):
-    current_price = serializers.SerializerMethodField()
+    display_price = serializers.SerializerMethodField()
     price_change = serializers.SerializerMethodField()
     price_change_percent = serializers.SerializerMethodField()
 
@@ -12,7 +12,7 @@ class StockSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('last_updated', 'company_code', 'is_local')
 
-    def get_current_price(self, obj):
+    def get_display_price(self, obj):
         """Return price in portfolio base currency using mid FX rate"""
         from portfolio.services.fx_service import get_fx_rate
         from django.utils import timezone

@@ -1,7 +1,10 @@
 from rest_framework import serializers
 from .models import CustomUser  
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from datetime import date
 
 class UserCreateSerializer(serializers.ModelSerializer):
@@ -80,15 +83,18 @@ class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = (
+            'id',
             'email', 
             'full_name',
             'short_name',
+            'is_staff',
+            'is_superuser',
             'dob',
             'age',
             'created_at',
             'updated_at'
         )
-        read_only_fields = ('email', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'email', 'is_staff', 'is_superuser', 'created_at', 'updated_at')
 
     def get_age(self, obj):
         if not obj.dob:
@@ -97,3 +103,40 @@ class CustomUserSerializer(serializers.ModelSerializer):
         return today.year - obj.dob.year - (
             (today.month, today.day) < (obj.dob.month, obj.dob.day)
         )
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+
+    default_error_messages = {
+        'invalid_token': 'Invalid or expired password reset token.',
+    }
+
+    def validate(self, attrs):
+        try:
+            uid = force_str(urlsafe_base64_decode(attrs['uid']))
+            user = CustomUser.objects.get(pk=uid, is_active=True)
+        except (CustomUser.DoesNotExist, TypeError, ValueError, OverflowError):
+            self.fail('invalid_token')
+
+        if not default_token_generator.check_token(user, attrs['token']):
+            self.fail('invalid_token')
+
+        validate_password(attrs['new_password'], user=user)
+        attrs['user'] = user
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.validated_data['user']
+        user.set_password(self.validated_data['new_password'])
+        user.save(update_fields=['password', 'updated_at'])
+        return user
