@@ -2,9 +2,10 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { formatCurrency, formatPercent } from '../utils/format';
 import apiClient from '../services/axios';
 
-const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
+const PositionsTab = ({ portfolio, holdings, summary, displayCurrency, onDisplayCurrencyChange }) => {
   const [fxRates, setFxRates] = useState(null);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   const fxFetchRef = useRef(false);
   useEffect(() => {
@@ -26,117 +27,28 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
     return () => { cancelled = true; };
   }, []);
 
-  const costBasisMap = useMemo(() => {
-    if (!Array.isArray(transactions)) return new Map();
-    const sorted = [...transactions].filter(tx => tx && tx.stock_symbol && tx.transaction_type && tx.quantity)
-      .sort((a, b) => {
-        const aTime = new Date(a.timestamp || 0).getTime();
-        const bTime = new Date(b.timestamp || 0).getTime();
-        return aTime - bTime;
-      });
-
-    const map = new Map();
-
-    sorted.forEach((tx) => {
-      const type = String(tx.transaction_type || '').toUpperCase();
-      if (type !== 'BUY' && type !== 'SELL') return;
-
-      const symbol = String(tx.stock_symbol || '').toUpperCase();
-      if (!symbol) return;
-
-      const qty = Number(tx.quantity || 0);
-      if (!Number.isFinite(qty) || qty <= 0) return;
-
-      let fx = tx.fx_rate != null && tx.fx_rate !== '' ? Number(tx.fx_rate) : 1;
-      if (!Number.isFinite(fx) || fx <= 0) fx = 1;
-      const amountNativeVal = tx.amount != null ? Number(tx.amount) : Number(tx.executed_price || 0) * qty;
-      if (!Number.isFinite(amountNativeVal)) return;
-      const amountNative = amountNativeVal;
-      const baseAmountRaw = amountNative * fx;
-      const baseAmount = Number.isFinite(baseAmountRaw) ? baseAmountRaw : amountNative;
-
-      const entry = map.get(symbol) || { qty: 0, cost: 0 };
-
-      if (type === 'BUY') {
-        entry.cost = (entry.cost || 0) + baseAmount;
-        entry.qty = (entry.qty || 0) + qty;
-      } else {
-        const existingQty = entry.qty || 0;
-        if (existingQty <= 0) {
-          // No existing quantity tracked; skip cost adjustment but ensure quantity doesn't go wildly negative
-          entry.qty = existingQty - qty;
-        } else {
-          const avgCost = entry.cost / existingQty;
-          const sharesSold = Math.min(qty, existingQty);
-          entry.cost = entry.cost - (avgCost * sharesSold);
-          entry.qty = Math.max(0, existingQty - sharesSold);
-          if (Math.abs(entry.cost) < 1e-4) entry.cost = 0;
-          if (Math.abs(entry.qty) < 1e-4) entry.qty = 0;
-        }
-      }
-
-      // Normalize to 2 decimals to avoid float drift
-      entry.cost = Number.isFinite(entry.cost) ? Math.round(entry.cost * 100) / 100 : 0;
-      entry.qty = Number.isFinite(entry.qty) ? entry.qty : 0;
-
-      map.set(symbol, entry);
-    });
-
-    return map;
-  }, [transactions]);
-
   const rows = useMemo(() => {
-    const totalValue = Number(portfolio?.total_value || 0);
+    const totalValue = Number(summary?.total_value ?? portfolio?.total_value ?? 0);
     const fxMid = Number(fxRates?.mid?.rate) || 1;
 
     return (holdings || []).map(h => {
       const qty = Number(h.quantity || 0);
       const isUSD = h.stock?.currency === 'USD';
       const nativePrice = Number(h.stock?.current_price ?? 0);
-      // Use display_price (FX-converted by backend) if available, else convert manually
       const price = Number(h.stock?.display_price ?? (isUSD ? nativePrice * fxMid : nativePrice));
       const mktVal = Number(h.current_value ?? (qty * price));
-      const symbol = String(h.stock?.symbol || '').toUpperCase();
-      const derived = costBasisMap.get(symbol);
-      const derivedMatches = derived && Number.isFinite(derived.cost) && Number.isFinite(derived.qty) &&
-        Math.round(derived.qty) === qty;
-      const derivedCost = derivedMatches ? derived.cost : null;
-      const baseCost = h?.cost_basis != null ? Number(h.cost_basis) : null;
-      const fallbackCost = Number(h.average_purchase_price || 0) * qty;
-
-      const costBasisCandidates = [baseCost, derivedCost, fallbackCost];
-      let costBasis = 0;
-      for (const cand of costBasisCandidates) {
-        if (cand != null && Number.isFinite(cand) && cand > 0) {
-          costBasis = cand;
-          break;
-        }
-      }
-      if (!costBasis && fallbackCost) costBasis = fallbackCost;
-
-      costBasis = Number.isFinite(costBasis) ? Math.round(costBasis * 100) / 100 : 0;
-
-      const backendGl = h?.gain_loss != null ? Number(h.gain_loss) : null;
-      const gl = Number.isFinite(backendGl) ? backendGl : (mktVal - costBasis);
-      const backendGlPct = h?.gain_loss_percentage != null ? Number(h.gain_loss_percentage) : null;
-      const glPct = Number.isFinite(backendGlPct) ? backendGlPct : (costBasis ? (gl / costBasis) * 100 : 0);
+      const costBasis = Number(h.cost_basis ?? 0);
+      const gl = Number(h.gain_loss ?? (mktVal - costBasis));
+      const glPct = Number(h.gain_loss_percentage ?? 0);
       const pctOfAcct = totalValue ? (mktVal / totalValue) * 100 : 0;
-
       const priceChg = h.stock?.price_change != null ? Number(h.stock.price_change) : null;
       const priceChgPct = h.stock?.price_change_percent != null ? Number(h.stock.price_change_percent) : null;
-      let dayChg = h?.day_change != null ? Number(h.day_change) : null;
-      let dayChgPct = h?.day_change_percentage != null ? Number(h.day_change_percentage) : null;
-      if (dayChg == null && priceChg != null && qty) {
-        dayChg = priceChg * qty;
-      }
-      if (dayChgPct == null && dayChg != null) {
-        const baseline = mktVal - dayChg;
-        dayChgPct = baseline ? (dayChg / baseline) * 100 : null;
-      }
+      const dayChg = h.day_change != null ? Number(h.day_change) : null;
+      const dayChgPct = h.day_change_percentage != null ? Number(h.day_change_percentage) : null;
 
       return { id: h.id, sym: h.stock?.symbol, name: h.stock?.name, qty, price, mktVal, costBasis, gl, glPct, pctOfAcct, priceChg, priceChgPct, dayChg, dayChgPct };
     });
-  }, [portfolio, holdings, costBasisMap, fxRates]);
+  }, [portfolio, holdings, summary, fxRates]);
 
   const signClass = (v) => {
     const n = typeof v === 'number' ? v : Number.isFinite(v) ? Number(v) : NaN;
@@ -146,25 +58,41 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
     return '';
   };
 
-  const cash = Number(portfolio?.cash_balance || 0);
-  const totalCostBasis = rows.reduce((sum, r) => sum + (Number(r.costBasis) || 0), 0);
-  const totalGL = rows.reduce((sum, r) => sum + (Number(r.gl) || 0), 0);
-  const totalGLPct = totalCostBasis ? (totalGL / totalCostBasis) * 100 : 0;
-  const rowsMktVal = rows.reduce((sum, r) => sum + (Number(r.mktVal) || 0), 0);
-  const totalMktVal = rowsMktVal + cash;
-  const totalDayChg = rows.reduce((sum, r) => sum + (Number(r.dayChg) || 0), 0);
-  const totalDayBaseline = cash + rows.reduce((sum, r) => {
-    if (r.dayChg == null) return sum + (Number(r.mktVal) || 0);
-    return sum + ((Number(r.mktVal) || 0) - Number(r.dayChg || 0));
-  }, 0);
-  const totalDayChgPct = totalDayBaseline ? (totalDayChg / totalDayBaseline) * 100 : 0;
+  const cash = Number(summary?.cash_balance ?? portfolio?.cash_balance ?? 0);
+  const totalMktVal = Number(summary?.total_value ?? (rows.reduce((s, r) => s + (Number(r.mktVal) || 0), 0) + cash));
+  const totalCostBasis = Number(summary?.cost_basis ?? rows.reduce((s, r) => s + (Number(r.costBasis) || 0), 0));
+  const totalGL = Number(summary?.gain_loss ?? rows.reduce((s, r) => s + (Number(r.gl) || 0), 0));
+  const totalGLPct = Number(summary?.gain_loss_percentage ?? (totalCostBasis ? (totalGL / totalCostBasis) * 100 : 0));
+  const totalDayChg = Number(summary?.day_change ?? rows.reduce((s, r) => s + (Number(r.dayChg) || 0), 0));
+  const totalDayChgPct = Number(summary?.day_change_percentage ?? 0);
 
   const hasUsdStocks = (holdings || []).some(h => h.stock?.currency === 'USD');
+
+  const activeCurrency = (summary?.summary_currency || displayCurrency || portfolio?.reporting_currency || 'PEN').toUpperCase();
+  const isUSDView = activeCurrency === 'USD';
+
+  const handleCurrencyToggle = async () => {
+    if (!onDisplayCurrencyChange || switching) return;
+    setSwitching(true);
+    try {
+      await onDisplayCurrencyChange(isUSDView ? 'PEN' : 'USD');
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h3 style={{ margin: 0 }}>Detalles de posiciones</h3>
+        <button
+          className="btn xs ghost"
+          onClick={handleCurrencyToggle}
+          disabled={switching}
+          style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          {switching ? 'Convirtiendo…' : isUSDView ? 'Ver en S/.' : 'Ver en $'}
+        </button>
       </div>
 
       {hasUsdStocks && fxRates && (
@@ -262,61 +190,35 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
 
               {cash > 0 && (
                 <tr>
-                  {/* Símbolo */}
                   <td className="sticky-col">Efectivo</td>
-                  {/* Descripción */}
                   <td></td>
-                  {/* Cant. */}
                   <td>-</td>
-                  {/* Precio */}
                   <td></td>
-                  {/* Cambio precio $ */}
                   <td></td>
-                  {/* Cambio precio % */}
                   <td></td>
-                  {/* Valor de mercado */}
                   <td>{formatCurrency(cash)}</td>
-                  {/* Cambio del día $ */}
                   <td>{formatCurrency(0)}</td>
-                  {/* Cambio del día % */}
                   <td>{formatPercent(0)}</td>
-                  {/* Costo base */}
                   <td>-</td>
-                  {/* Gan./Pérdida $ */}
                   <td>-</td>
-                  {/* Gan./Pérdida % */}
                   <td>-</td>
-                  {/* % de la cuenta */}
-                  <td>{formatPercent(portfolio?.total_value ? (cash / portfolio.total_value) * 100 : 0)}</td>
+                  <td>{formatPercent(totalMktVal ? (cash / totalMktVal) * 100 : 0)}</td>
                 </tr>
               )}
 
               <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
-                {/* Símbolo */}
                 <td className="sticky-col" style={{ fontWeight: 600 }}>Total de la cuenta</td>
-                {/* Descripción */}
                 <td></td>
-                {/* Cant. */}
                 <td></td>
-                {/* Precio */}
                 <td></td>
-                {/* Cambio precio $ */}
                 <td></td>
-                {/* Cambio precio % */}
                 <td></td>
-                {/* Valor de mercado */}
-                <td style={{ fontWeight: 600 }}>{formatCurrency(totalMktVal || portfolio?.total_value || 0)}</td>
-                {/* Cambio del día $ */}
+                <td style={{ fontWeight: 600 }}>{formatCurrency(totalMktVal)}</td>
                 <td className={signClass(totalDayChg)}>{formatCurrency(totalDayChg)}</td>
-                {/* Cambio del día % */}
                 <td className={signClass(totalDayChgPct)}>{formatPercent(totalDayChgPct)}</td>
-                {/* Costo base */}
                 <td>{formatCurrency(totalCostBasis)}</td>
-                {/* Gan./Pérdida $ */}
                 <td className={signClass(totalGL)}>{formatCurrency(totalGL)}</td>
-                {/* Gan./Pérdida % */}
                 <td className={signClass(totalGLPct)}>{formatPercent(totalGLPct)}</td>
-                {/* % de la cuenta */}
                 <td></td>
               </tr>
             </tbody>
