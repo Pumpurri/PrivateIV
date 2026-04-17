@@ -45,7 +45,7 @@ const PortfolioDetail = () => {
   const [portfolio, setPortfolio] = useState(null);
   const [holdings, setHoldings] = useState([]);
   const [holdingsSummary, setHoldingsSummary] = useState(null);
-  const [displayCurrency, setDisplayCurrency] = useState(null);
+  const [displayCurrency, setDisplayCurrency] = useState('NATIVE');
   const [transactions, setTransactions] = useState([]);
   const lastDataLoadIdRef = React.useRef(null);
   const [editingMeta, setEditingMeta] = useState(false);
