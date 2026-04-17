@@ -42,8 +42,8 @@ def test_fetch_data_for_companies_uses_timeout_and_keeps_key_out_of_url(monkeypa
     data = fetch_data_for_companies('AAPL')
 
     assert data == [{'symbol': 'AAPL', 'price': 123.45}]
-    assert captured['url'] == 'https://financialmodelingprep.com/api/v3/quote/AAPL/'
-    assert captured['params'] == {'apikey': 'secret-key'}
+    assert captured['url'] == 'https://financialmodelingprep.com/stable/quote'
+    assert captured['params'] == {'symbol': 'AAPL', 'apikey': 'secret-key'}
     assert captured['timeout'] == 3.5
     assert 'secret-key' not in captured['url']
 

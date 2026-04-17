@@ -9,13 +9,14 @@ from stocks.models import Stock
 
 
 @pytest.mark.django_db
-def test_snapshot_uses_cierre_compra_rate(user_factory):
+def test_snapshot_uses_cierre_compra_rate(user_factory, set_fx_market_now):
     user = user_factory.create()
     p = user.portfolios.get(is_default=True)
 
     # One USD asset
     s = Stock.objects.create(symbol='USDC', name='USD Close', currency='USD', current_price=Decimal('10.00'))
     today = timezone.now().date()
+    set_fx_market_now(today)
     # Provide cierre rates before trading because cross-currency execution is strict.
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.80'), rate_type='compra', session='cierre')
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.80'), rate_type='venta', session='cierre')

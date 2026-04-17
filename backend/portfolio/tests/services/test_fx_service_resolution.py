@@ -1,9 +1,11 @@
+from datetime import date, datetime, timezone as dt_timezone
+
 import pytest
 from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from portfolio.services.fx_service import get_fx_rate
+from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 from portfolio.models import FXRate
 
 
@@ -80,3 +82,20 @@ def test_fx_rate_missing_raises_when_required():
 
     with pytest.raises(ValidationError, match="Missing FX rate"):
         get_fx_rate(today, 'PEN', 'USD', rate_type='compra', session='cierre', require_rate=True)
+
+
+def test_current_fx_context_uses_market_timezone_when_app_timezone_is_utc(settings):
+    settings.TIME_ZONE = 'UTC'
+    settings.FX_MARKET_TIME_ZONE = 'America/Lima'
+
+    fx_date, session = get_current_fx_context(
+        datetime(2025, 9, 24, 16, 10, tzinfo=dt_timezone.utc)
+    )
+    assert fx_date == date(2025, 9, 24)
+    assert session == 'intraday'
+
+    next_fx_date, next_session = get_current_fx_context(
+        datetime(2025, 9, 25, 2, 15, tzinfo=dt_timezone.utc)
+    )
+    assert next_fx_date == date(2025, 9, 24)
+    assert next_session == 'cierre'

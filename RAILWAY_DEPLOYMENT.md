@@ -61,11 +61,14 @@ DATABASE_URL=${{Postgres.DATABASE_URL}}
 
 # Celery/Redis (use the REDIS_URL from Redis service)
 CELERY_BROKER_URL=${{Redis.REDIS_URL}}
-CELERY_RESULT_BACKEND=${{Redis.REDIS_URL}}
 
-# API Keys (replace with your actual keys)
-ALPHA_VANTAGE_API_KEY=your-key-here
-EXCHANGE_RATE_API_KEY=your-key-here
+# Market Data
+FMP_API=your-financial-modeling-prep-api-key
+
+# Optional BVL integration
+BVL_API_KEY=your-bvl-api-key
+# BVL_API_BASE defaults to https://dataondemand.bvl.com.pe
+# BVL_API_BASE=https://dataondemand.bvl.com.pe
 
 # Datadog (optional)
 DD_API_KEY=your-datadog-api-key
@@ -111,11 +114,12 @@ OR use Railway's variable referencing:
 ```env
 DATABASE_URL=${{Django.DATABASE_URL}}
 CELERY_BROKER_URL=${{Redis.REDIS_URL}}
-CELERY_RESULT_BACKEND=${{Redis.REDIS_URL}}
 DJANGO_SETTINGS_MODULE=TradeSimulator.settings
 SECRET_KEY=${{Django.SECRET_KEY}}
 # ... copy all other vars
 ```
+
+Note: do not set `CELERY_RESULT_BACKEND` to Redis for this project. The backend is configured to use `django-db`, so task result storage comes from Django's database via `django_celery_results`.
 
 ### C. Configure Start Command
 
@@ -131,7 +135,7 @@ Click **"Deploy"**
 
 ---
 
-## 📦 Service 5: Celery Beat (Optional - for scheduled tasks)
+## 📦 Service 5: Celery Beat (Required — prices, FX, snapshots, and TWR will not update without it)
 
 ### A. Create the Service
 
@@ -197,11 +201,13 @@ In Railway Django service → Settings → Deploy Logs, you can run:
 
 ```bash
 python manage.py migrate
+python manage.py sync_periodic_tasks
 ```
 
 Or use Railway CLI:
 ```bash
 railway run python manage.py migrate
+railway run python manage.py sync_periodic_tasks
 ```
 
 ### 2. Create Superuser
@@ -287,6 +293,7 @@ railway logs
 ### Run Commands
 ```bash
 railway run python manage.py migrate
+railway run python manage.py sync_periodic_tasks
 railway run python manage.py createsuperuser
 railway run python manage.py shell
 ```
@@ -305,9 +312,9 @@ railway status
 - [x] `gunicorn` added to requirements.txt
 - [ ] Set all environment variables
 - [ ] Configure CORS origins
-- [ ] Add API keys
+- [ ] Add `FMP_API` and optional `BVL_API_KEY`
 - [ ] Set SECRET_KEY
-- [ ] Run migrations after deploy
+- [ ] Run `migrate` and `sync_periodic_tasks` after deploy
 - [ ] Create superuser
 - [ ] Test all endpoints
 

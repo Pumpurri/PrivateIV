@@ -92,6 +92,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
+FX_MARKET_TIME_ZONE = os.getenv('FX_MARKET_TIME_ZONE', 'America/Lima')
 USE_I18N = True
 USE_TZ = True
 
@@ -118,8 +119,20 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_RATES': {
         'user': os.getenv('DRF_USER_THROTTLE_RATE', '60/min'),
+        'auth_login': os.getenv('DRF_AUTH_LOGIN_THROTTLE_RATE', '10/min'),
+        'auth_register': os.getenv('DRF_AUTH_REGISTER_THROTTLE_RATE', '5/hour'),
+        'auth_password_reset_request': os.getenv('DRF_AUTH_PASSWORD_RESET_REQUEST_THROTTLE_RATE', '5/hour'),
+        'auth_password_reset_confirm': os.getenv('DRF_AUTH_PASSWORD_RESET_CONFIRM_THROTTLE_RATE', '10/hour'),
     },
 }
+
+# HTTPS / HSTS (only in production)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # CSRF Protection
 CSRF_COOKIE_SECURE = not DEBUG

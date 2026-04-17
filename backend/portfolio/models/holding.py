@@ -66,10 +66,7 @@ class Holding(models.Model):
     @property
     def current_value(self):
         """Current value in portfolio base currency"""
-        from portfolio.services.fx_service import get_fx_rate
-        from django.utils import timezone
-        from django.utils.timezone import localtime
-        from datetime import time
+        from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 
         price = self.stock.current_price
         if price is None:
@@ -79,16 +76,10 @@ class Holding(models.Model):
 
         # Convert to portfolio base currency if needed
         if self.stock.currency and self.stock.currency != self.portfolio.base_currency:
-            # Determine session for FX rate
-            try:
-                now_t = localtime().time()
-            except Exception:
-                now_t = timezone.now().time()
-            cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-            session = 'intraday' if (cmp_t >= time(11,5) and cmp_t < time(13,30)) else 'cierre'
+            fx_date, session = get_current_fx_context()
 
             # Use mid rate (average of compra/venta) for current valuation
-            fx = get_fx_rate(timezone.now().date(), self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
+            fx = get_fx_rate(fx_date, self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
             return (native_value * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
         return native_value
@@ -96,10 +87,7 @@ class Holding(models.Model):
     @property
     def gain_loss(self):
         """Gain/loss in portfolio base currency"""
-        from portfolio.services.fx_service import get_fx_rate
-        from django.utils import timezone
-        from django.utils.timezone import localtime
-        from datetime import time
+        from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 
         price = self.stock.current_price
         if price is None:
@@ -107,14 +95,8 @@ class Holding(models.Model):
 
         # Convert current price to portfolio base currency if needed
         if self.stock.currency and self.stock.currency != self.portfolio.base_currency:
-            try:
-                now_t = localtime().time()
-            except Exception:
-                now_t = timezone.now().time()
-            cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-            session = 'intraday' if (cmp_t >= time(11,5) and cmp_t < time(13,30)) else 'cierre'
-
-            fx = get_fx_rate(timezone.now().date(), self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
+            fx_date, session = get_current_fx_context()
+            fx = get_fx_rate(fx_date, self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
             price_base = (price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         else:
             price_base = price

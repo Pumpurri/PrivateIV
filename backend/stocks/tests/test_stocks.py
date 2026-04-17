@@ -10,7 +10,7 @@ from datetime import date
 from django.db import IntegrityError
 from django.utils import timezone
 
-from stocks.models import Stock
+from stocks.models import Stock, StockRefreshStatus
 from stocks.tasks import fetch_stock_prices, COMPANIES as companies
 from stocks.serializers import StockSerializer
 from stocks.tests.factories import StockFactory
@@ -175,11 +175,22 @@ class TestStockViews:
         response = client.get(reverse('stock-last-refresh'))
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_authenticated_user_can_read_stock_refresh_status(self, client, regular_user):
+    def test_last_refresh_returns_null_when_no_refresh_has_run(self, client, regular_user):
         client.force_authenticate(regular_user)
         response = client.get(reverse('stock-last-refresh'))
+
         assert response.status_code == status.HTTP_200_OK
-        assert 'last_refreshed_at' in response.data
+        assert response.data == {'last_refreshed_at': None}
+        assert StockRefreshStatus.objects.count() == 0
+
+    def test_authenticated_user_can_read_existing_stock_refresh_status(self, client, regular_user):
+        refreshed = StockRefreshStatus.mark_refreshed()
+
+        client.force_authenticate(regular_user)
+        response = client.get(reverse('stock-last-refresh'))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['last_refreshed_at'] == refreshed.last_refreshed_at.isoformat().replace('+00:00', 'Z')
 
     def test_admin_create_stock(self, client, admin_user):
         client.force_authenticate(admin_user)

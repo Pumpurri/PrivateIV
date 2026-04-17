@@ -3,7 +3,7 @@ from django.db import models, IntegrityError, transaction
 import time
 from decimal import Decimal, DivisionByZero, ROUND_HALF_UP
 import logging
-from django.db.models import Sum, Q, Max
+from django.db.models import Count, Sum, Q, Max
 from django.utils import timezone
 from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
 from portfolio.models.transaction import Transaction
@@ -163,16 +163,24 @@ class SnapshotService:
         cache_version_key = f"holdings_version_{portfolio.pk}"
         cache_key = f"hist_hold_{portfolio.pk}_{snapshot_date}"
         
-        # Get latest transaction timestamp for cache validation
-        last_txn_time = Transaction.objects.filter(
+        # Use both latest timestamp and transaction count so cache invalidation
+        # still works when multiple transactions share the same timestamp.
+        transaction_signature = Transaction.objects.filter(
             portfolio=portfolio,
             timestamp__date__lte=snapshot_date
-        ).aggregate(Max('timestamp'))['timestamp__max'] or 0
+        ).aggregate(
+            latest_timestamp=Max('timestamp'),
+            txn_count=Count('id'),
+        )
+        cache_token = (
+            transaction_signature['latest_timestamp'],
+            transaction_signature['txn_count'] or 0,
+        )
         
         version = cache.get(cache_version_key, 0)
         cached = cache.get(f"{cache_key}_v{version}")
         
-        if cached and cached.get('valid_until') == last_txn_time:
+        if cached and cached.get('cache_token') == cache_token:
             return cached['holdings']
     
         holdings = {}  # {stock_id: {quantity, total_cost, average_price}}
@@ -231,7 +239,7 @@ class SnapshotService:
             cache_version_key: new_version,
             f"{cache_key}_v{new_version}": {
                 'holdings': holdings,
-                'valid_until': last_txn_time
+                'cache_token': cache_token,
             }
         }, timeout=60 * 60 * 24 * 7)  # 1 week cache
 
