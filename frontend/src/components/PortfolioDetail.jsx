@@ -45,6 +45,7 @@ const PortfolioDetail = () => {
   const [portfolio, setPortfolio] = useState(null);
   const [holdings, setHoldings] = useState([]);
   const [holdingsSummary, setHoldingsSummary] = useState(null);
+  const [displayCurrency, setDisplayCurrency] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const lastDataLoadIdRef = React.useRef(null);
   const [editingMeta, setEditingMeta] = useState(false);
@@ -89,7 +90,7 @@ const PortfolioDetail = () => {
       try {
         const [p, h, tx] = await Promise.all([
           getPortfolio(id),
-          getPortfolioHoldings(id).catch(() => ({ results: [] })),
+          getPortfolioHoldings(id, displayCurrency ? { display_currency: displayCurrency } : {}).catch(() => ({ results: [] })),
           getTransactions({ portfolio: id }).catch(() => ({ results: [] })),
         ]);
         if (cancelled) return;
@@ -112,11 +113,12 @@ const PortfolioDetail = () => {
     };
   }, [id]);
 
-  const refreshAll = async () => {
+  const refreshAll = async (currencyOverride) => {
+    const currency = currencyOverride !== undefined ? currencyOverride : displayCurrency;
     try {
       const [p, h, tx] = await Promise.all([
         getPortfolio(id),
-        getPortfolioHoldings(id).catch(() => ({ results: [] })),
+        getPortfolioHoldings(id, currency ? { display_currency: currency } : {}).catch(() => ({ results: [] })),
         getTransactions({ portfolio: id }).catch(() => ({ results: [] })),
       ]);
       setPortfolio(p);
@@ -764,7 +766,7 @@ const PortfolioDetail = () => {
         <ErrorBoundary>
           <React.Suspense fallback={<div className="muted">Loading…</div>}>
             {activeTab === 'balances' && <BalancesTab portfolio={portfolio} transactions={transactions} />}
-            {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} summary={holdingsSummary} />}
+            {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} summary={holdingsSummary} displayCurrency={displayCurrency} onDisplayCurrencyChange={async (cur) => { setDisplayCurrency(cur); await refreshAll(cur); }} />}
             {activeTab === 'realized' && isAdmin && <RealizedTab portfolio={portfolio} />}
             {activeTab === 'performance' && isAdmin && <PerformanceTab />}
             {activeTab === 'history' && <HistoryTab transactions={transactions} />}

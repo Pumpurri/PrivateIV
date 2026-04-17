@@ -74,8 +74,8 @@ export const getPortfolio = async (id) => {
   return data;
 };
 
-export const getPortfolioHoldings = async (id) => {
-  const { data } = await apiClient.get(`/portfolios/${id}/holdings/`);
+export const getPortfolioHoldings = async (id, params = {}) => {
+  const { data } = await apiClient.get(`/portfolios/${id}/holdings/`, { params });
   return data;
 };
 
