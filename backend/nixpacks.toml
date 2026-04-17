@@ -8,11 +8,7 @@ cmds = [
 ]
 
 [phases.build]
-cmds = [
-  ". /opt/venv/bin/activate && python manage.py collectstatic --noinput",
-  ". /opt/venv/bin/activate && python manage.py migrate --noinput",
-  ". /opt/venv/bin/activate && python manage.py sync_periodic_tasks"
-]
+cmds = [". /opt/venv/bin/activate && python manage.py collectstatic --noinput"]
 
 [start]
-cmd = ". /opt/venv/bin/activate && gunicorn TradeSimulator.wsgi:application --bind 0.0.0.0:$PORT --workers 3"
+cmd = ". /opt/venv/bin/activate && python manage.py migrate --noinput && python manage.py sync_periodic_tasks && gunicorn TradeSimulator.wsgi:application --bind 0.0.0.0:$PORT --workers 3"
