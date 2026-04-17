@@ -103,6 +103,39 @@ class TestPortfolioListView:
             amount=Decimal('500.00'),
         ).exists()
 
+    def test_create_portfolio_with_split_pen_and_usd_initial_deposits(self):
+        user = UserFactory.create()
+        self.client.force_authenticate(user=user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'name': 'Multi Wallet Portfolio',
+                'description': 'Split funding',
+                'initial_deposit_pen': '500.00',
+                'initial_deposit_usd': '200.00',
+            },
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        portfolio = Portfolio.objects.get(id=response.data['id'])
+        assert portfolio.user == user
+        assert portfolio.cash_balance == Decimal('500.00')
+        assert portfolio.cash_balance_usd == Decimal('200.00')
+        assert Transaction.objects.filter(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('500.00'),
+            cash_currency='PEN',
+        ).exists()
+        assert Transaction.objects.filter(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('200.00'),
+            cash_currency='USD',
+        ).exists()
+
     def test_create_portfolio_rolls_back_if_initial_deposit_fails(self, monkeypatch):
         user = UserFactory.create()
         self.client.force_authenticate(user=user)
