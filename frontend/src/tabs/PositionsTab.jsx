@@ -87,12 +87,14 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
 
   const rows = useMemo(() => {
     const totalValue = Number(portfolio?.total_value || 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const fxMid = Number(fxRates?.mid?.rate) || 1;
 
     return (holdings || []).map(h => {
       const qty = Number(h.quantity || 0);
-      const price = Number(h.stock?.current_price ?? 0);
+      const isUSD = h.stock?.currency === 'USD';
+      const nativePrice = Number(h.stock?.current_price ?? 0);
+      // Use display_price (FX-converted by backend) if available, else convert manually
+      const price = Number(h.stock?.display_price ?? (isUSD ? nativePrice * fxMid : nativePrice));
       const mktVal = Number(h.current_value ?? (qty * price));
       const symbol = String(h.stock?.symbol || '').toUpperCase();
       const derived = costBasisMap.get(symbol);
@@ -102,7 +104,7 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
       const baseCost = h?.cost_basis != null ? Number(h.cost_basis) : null;
       const fallbackCost = Number(h.average_purchase_price || 0) * qty;
 
-      const costBasisCandidates = [derivedCost, baseCost, fallbackCost];
+      const costBasisCandidates = [baseCost, derivedCost, fallbackCost];
       let costBasis = 0;
       for (const cand of costBasisCandidates) {
         if (cand != null && Number.isFinite(cand) && cand > 0) {
@@ -114,34 +116,27 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
 
       costBasis = Number.isFinite(costBasis) ? Math.round(costBasis * 100) / 100 : 0;
 
-      const gl = mktVal - costBasis;
-      const glPct = costBasis ? (gl / costBasis) * 100 : 0;
+      const backendGl = h?.gain_loss != null ? Number(h.gain_loss) : null;
+      const gl = Number.isFinite(backendGl) ? backendGl : (mktVal - costBasis);
+      const backendGlPct = h?.gain_loss_percentage != null ? Number(h.gain_loss_percentage) : null;
+      const glPct = Number.isFinite(backendGlPct) ? backendGlPct : (costBasis ? (gl / costBasis) * 100 : 0);
       const pctOfAcct = totalValue ? (mktVal / totalValue) * 100 : 0;
 
-      // Use real price change data from backend
       const priceChg = h.stock?.price_change != null ? Number(h.stock.price_change) : null;
       const priceChgPct = h.stock?.price_change_percent != null ? Number(h.stock.price_change_percent) : null;
-
-      // Check if there were any transactions for this stock today
-      const hadTransactionsToday = (transactions || []).some(tx => {
-        if (!tx || !tx.stock_symbol || !tx.timestamp) return false;
-        const txSymbol = String(tx.stock_symbol).toUpperCase();
-        const txDate = new Date(tx.timestamp);
-        txDate.setHours(0, 0, 0, 0);
-        return txSymbol === symbol && txDate.getTime() === today.getTime();
-      });
-
-      // Day change: only show if no transactions today
-      let dayChg = null;
-      let dayChgPct = null;
-      if (!hadTransactionsToday && priceChg != null && qty) {
+      let dayChg = h?.day_change != null ? Number(h.day_change) : null;
+      let dayChgPct = h?.day_change_percentage != null ? Number(h.day_change_percentage) : null;
+      if (dayChg == null && priceChg != null && qty) {
         dayChg = priceChg * qty;
-        dayChgPct = priceChgPct;
+      }
+      if (dayChgPct == null && dayChg != null) {
+        const baseline = mktVal - dayChg;
+        dayChgPct = baseline ? (dayChg / baseline) * 100 : null;
       }
 
       return { id: h.id, sym: h.stock?.symbol, name: h.stock?.name, qty, price, mktVal, costBasis, gl, glPct, pctOfAcct, priceChg, priceChgPct, dayChg, dayChgPct };
     });
-  }, [portfolio, holdings, costBasisMap, transactions]);
+  }, [portfolio, holdings, costBasisMap, fxRates]);
 
   const signClass = (v) => {
     const n = typeof v === 'number' ? v : Number.isFinite(v) ? Number(v) : NaN;
@@ -158,7 +153,11 @@ const PositionsTab = ({ portfolio, holdings, transactions = [] }) => {
   const rowsMktVal = rows.reduce((sum, r) => sum + (Number(r.mktVal) || 0), 0);
   const totalMktVal = rowsMktVal + cash;
   const totalDayChg = rows.reduce((sum, r) => sum + (Number(r.dayChg) || 0), 0);
-  const totalDayChgPct = totalMktVal ? (totalDayChg / totalMktVal) * 100 : 0;
+  const totalDayBaseline = cash + rows.reduce((sum, r) => {
+    if (r.dayChg == null) return sum + (Number(r.mktVal) || 0);
+    return sum + ((Number(r.mktVal) || 0) - Number(r.dayChg || 0));
+  }, 0);
+  const totalDayChgPct = totalDayBaseline ? (totalDayChg / totalDayBaseline) * 100 : 0;
 
   const hasUsdStocks = (holdings || []).some(h => h.stock?.currency === 'USD');
 

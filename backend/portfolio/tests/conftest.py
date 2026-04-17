@@ -51,6 +51,24 @@ def set_fx_market_now(monkeypatch):
 
     return _set
 
+
+@pytest.fixture
+def set_quote_and_position_now(monkeypatch):
+    """Freeze both FX valuation time and position day-boundary time."""
+    import portfolio.services.fx_service as fx_service
+    import stocks.market as stock_market
+
+    def _set(current_date, hour=19, minute=0):
+        frozen_now = datetime.combine(
+            current_date,
+            datetime_time(hour, minute),
+            tzinfo=datetime_timezone.utc,
+        )
+        monkeypatch.setattr(fx_service.timezone, 'now', lambda: frozen_now)
+        monkeypatch.setattr(stock_market.timezone, 'now', lambda: frozen_now)
+
+    return _set
+
 @pytest.fixture
 def holding(portfolio, stock):
     """Basic holding fixture"""

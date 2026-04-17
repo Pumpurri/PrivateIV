@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework import status
 from decimal import Decimal
+from datetime import datetime, timezone as datetime_timezone
 from django.urls import reverse
 from unittest.mock import Mock
 from math import ceil
@@ -10,7 +11,7 @@ from datetime import date
 from django.db import IntegrityError
 from django.utils import timezone
 
-from stocks.models import Stock, StockRefreshStatus
+from stocks.models import HistoricalStockPrice, Stock, StockRefreshStatus
 from stocks.tasks import fetch_stock_prices, COMPANIES as companies
 from stocks.serializers import StockSerializer
 from stocks.tests.factories import StockFactory
@@ -85,6 +86,23 @@ class TestStockModel:
             current_price=Decimal('123.455')
         )
         assert stock.current_price == Decimal('123.46')
+
+    def test_previous_close_fallback_uses_stock_market_timezone(self):
+        stock = StockFactory.create(
+            symbol='TZPC',
+            currency='USD',
+            previous_close=None,
+            current_price=Decimal('10.00'),
+        )
+        HistoricalStockPrice.objects.create(stock=stock, date=date(2026, 4, 15), price=Decimal('8.00'))
+        HistoricalStockPrice.objects.create(stock=stock, date=date(2026, 4, 16), price=Decimal('9.00'))
+
+        previous_close, previous_close_date = stock.get_previous_close_info(
+            now=datetime(2026, 4, 17, 1, 0, tzinfo=datetime_timezone.utc)
+        )
+
+        assert previous_close == Decimal('8.00')
+        assert previous_close_date == date(2026, 4, 15)
 
 # Serializer Tests -----------------------------------------------------------
 

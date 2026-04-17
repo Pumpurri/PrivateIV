@@ -1,6 +1,6 @@
 import pytest
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -123,14 +123,16 @@ class TestTransactionHistory:
         assert data['totals']['amount'] == '20.00'
         assert data['totals']['amount_native'] == '20.00'
         assert data['totals']['amount_base'] == '20.00'
+        assert data['totals']['amount_display'] == '20.00'
+        assert data['totals']['display_currency'] == 'PEN'
         assert data['totals']['quantity'] == 2
-        assert data['totals']['by_type']['BUY'] == {
-            'count': 1,
-            'amount': '20.00',
-            'amount_native': '20.00',
-            'amount_base': '20.00',
-            'quantity': 2,
-        }
+        assert data['totals']['by_type']['BUY']['count'] == 1
+        assert data['totals']['by_type']['BUY']['amount'] == '20.00'
+        assert data['totals']['by_type']['BUY']['amount_native'] == '20.00'
+        assert data['totals']['by_type']['BUY']['amount_base'] == '20.00'
+        assert data['totals']['by_type']['BUY']['amount_display'] == '20.00'
+        assert data['totals']['by_type']['BUY']['display_currency'] == 'PEN'
+        assert data['totals']['by_type']['BUY']['quantity'] == 2
         assert data['results'][0]['id'] == matching_aapl.id
         assert data['results'][0]['stock_symbol'] == 'AAPL'
 
@@ -162,15 +164,17 @@ class TestTransactionHistory:
         assert data['totals']['amount'] == '25.00'
         assert data['totals']['amount_native'] == '25.00'
         assert data['totals']['amount_base'] == '25.00'
+        assert data['totals']['amount_display'] == '25.00'
+        assert data['totals']['display_currency'] == 'PEN'
         assert data['totals']['quantity'] == 0
         assert data['totals']['net_cash_flow'] == '25.00'
-        assert data['totals']['by_type']['DEPOSIT'] == {
-            'count': 25,
-            'amount': '25.00',
-            'amount_native': '25.00',
-            'amount_base': '25.00',
-            'quantity': 0,
-        }
+        assert data['totals']['by_type']['DEPOSIT']['count'] == 25
+        assert data['totals']['by_type']['DEPOSIT']['amount'] == '25.00'
+        assert data['totals']['by_type']['DEPOSIT']['amount_native'] == '25.00'
+        assert data['totals']['by_type']['DEPOSIT']['amount_base'] == '25.00'
+        assert data['totals']['by_type']['DEPOSIT']['amount_display'] == '25.00'
+        assert data['totals']['by_type']['DEPOSIT']['display_currency'] == 'PEN'
+        assert data['totals']['by_type']['DEPOSIT']['quantity'] == 0
 
     def test_transaction_totals_keep_legacy_amount_and_expose_base_native_split(self, set_fx_market_now):
         user = UserFactory()
@@ -209,6 +213,63 @@ class TestTransactionHistory:
         # Richer fields remain available for base-currency analytics.
         assert Decimal(totals['amount_base']) >= Decimal(totals['amount_native'])
         assert Decimal(buy_totals['amount_base']) >= Decimal(buy_totals['amount_native'])
+        assert 'amount_display' in totals
+        assert 'display_currency' in totals
+
+    def test_transaction_history_supports_currency_filter_and_display_totals_for_conversions(self, set_fx_market_now):
+        user = UserFactory()
+        portfolio = user.portfolios.get(is_default=True)
+        trade_day = timezone.now().date()
+        set_fx_market_now(trade_day)
+
+        FXRate.objects.create(
+            date=trade_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='venta',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=trade_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.45'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        convert_tx = TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.CONVERT,
+            amount=Decimal('350.00'),
+            cash_currency='PEN',
+            counter_currency='USD',
+        )
+        Transaction.all_objects.filter(pk=convert_tx.pk).update(
+            timestamp=datetime.combine(trade_day, datetime.min.time(), tzinfo=datetime_timezone.utc)
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('transaction-list'),
+            {
+                'portfolio': portfolio.id,
+                'currency': 'USD',
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data['display_currency'] == 'USD'
+        assert data['totals']['display_currency'] == 'USD'
+        assert data['totals']['amount_display'] == '100.00'
+        assert data['results'][0]['transaction_type'] == Transaction.TransactionType.CONVERT
+        assert data['results'][0]['original_currency'] == 'PEN'
+        assert data['results'][0]['display_currency'] == 'USD'
+        assert Decimal(data['results'][0]['display_amount']) == Decimal('100.00')
+        assert Decimal(data['results'][0]['counter_amount']) == Decimal('100.00')
+        assert Decimal(data['results'][0]['counter_amount_display']) == Decimal('100.00')
 
     def test_transaction_filters_validate_invalid_values(self):
         user = UserFactory()
@@ -305,6 +366,47 @@ class TestTransactionHistory:
             transaction_type=Transaction.TransactionType.DEPOSIT,
             amount=Decimal('85.00'),
         ).count() == 1
+
+    def test_create_transaction_can_convert_pen_to_usd(self, set_fx_market_now):
+        user = UserFactory()
+        portfolio = PortfolioFactory(user=user, is_default=False)
+        self.client.force_authenticate(user=user)
+        trade_day = timezone.now().date()
+        set_fx_market_now(trade_day)
+
+        FXRate.objects.create(
+            date=trade_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='venta',
+            session='cierre',
+        )
+
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('700.00'),
+            cash_currency='PEN',
+        )
+
+        response = self.client.post(
+            reverse('transaction-create'),
+            {
+                'portfolio_id': portfolio.id,
+                'transaction_type': Transaction.TransactionType.CONVERT,
+                'amount': '350.00',
+                'cash_currency': 'PEN',
+                'counter_currency': 'USD',
+                'idempotency_key': str(uuid.uuid4()),
+            },
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        portfolio.refresh_from_db()
+        assert portfolio.cash_balance == Decimal('350.00')
+        assert portfolio.cash_balance_usd == Decimal('100.00')
 
     def test_pagination(self):
         user = UserFactory()

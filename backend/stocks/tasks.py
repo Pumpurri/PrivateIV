@@ -1,10 +1,12 @@
 from celery import shared_task
+from datetime import datetime, timezone as datetime_timezone
 import logging
 from math import ceil
 
 from django.utils import timezone
 
-from .models import Stock, StockRefreshStatus
+from .market import get_market_date, previous_business_day
+from .models import HistoricalStockPrice, Stock, StockRefreshStatus
 from .services import fetch_bvl_market_data, fetch_data_for_companies
 
 logger = logging.getLogger(__name__)
@@ -134,6 +136,48 @@ def batch_companies(companies, batch_size=20):
     return [companies[i*batch_size: (i+1)*batch_size] for i in range(num_batches)]
 
 
+def _coerce_quote_timestamp(value):
+    if value in (None, ''):
+        return None
+
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=datetime_timezone.utc)
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        try:
+            return datetime.fromtimestamp(float(stripped), tz=datetime_timezone.utc)
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(stripped.replace('Z', '+00:00'))
+                if timezone.is_naive(parsed):
+                    parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
+                return parsed
+            except ValueError:
+                return None
+
+    return None
+
+
+def _resolve_quote_market_date(*, is_local, currency, market_timestamp=None, raw_timestamp=None):
+    quote_timestamp = market_timestamp or _coerce_quote_timestamp(raw_timestamp)
+    if quote_timestamp is not None:
+        return get_market_date(is_local=is_local, currency=currency, now=quote_timestamp)
+    return get_market_date(is_local=is_local, currency=currency)
+
+
+def _resolve_previous_close_date(symbol, market_date):
+    existing_stock = Stock.objects.filter(symbol=symbol).only('id').first()
+    if existing_stock is not None:
+        historical_date = HistoricalStockPrice.objects.filter(
+            stock=existing_stock,
+            date__lt=market_date,
+        ).order_by('-date').values_list('date', flat=True).first()
+        if historical_date is not None:
+            return historical_date
+    return previous_business_day(market_date)
+
+
 def update_local_stock_prices():
     """
     Fetch and upsert BVL local listings into the Stock table.
@@ -155,10 +199,16 @@ def update_local_stock_prices():
         return True
 
     for item in records:
+        market_date = _resolve_quote_market_date(
+            is_local=True,
+            currency=item.get('currency') or 'PEN',
+            market_timestamp=item.get('market_timestamp'),
+        )
         defaults = {
             'name': item.get('name') or item.get('symbol'),
             'current_price': item.get('current_price'),
             'previous_close': item.get('previous_close'),
+            'previous_close_date': _resolve_previous_close_date(item['symbol'], market_date),
             'currency': item.get('currency') or 'PEN',
             'company_code': item.get('company_code', ''),
             'is_local': True,
@@ -184,6 +234,11 @@ def update_us_stock_prices(data):
         current_price = stock_info.get('price', 0.0)
         previous_close = stock_info.get('previousClose')
         name = stock_info.get('name', 'Unknown')
+        market_date = _resolve_quote_market_date(
+            is_local=False,
+            currency=stock_info.get('currency') or 'USD',
+            raw_timestamp=stock_info.get('timestamp'),
+        )
 
         Stock.objects.update_or_create(
             symbol=symbol,
@@ -191,6 +246,7 @@ def update_us_stock_prices(data):
                 'name': name,
                 'current_price': current_price,
                 'previous_close': previous_close,
+                'previous_close_date': _resolve_previous_close_date(symbol, market_date),
                 'company_code': '',
                 'is_local': False,
             }
@@ -261,8 +317,6 @@ def fetch_eod_prices():
 
     Saves both current_price (Stock table) and historical_price (HistoricalStockPrice table).
     """
-    from stocks.models import HistoricalStockPrice
-
     today = timezone.now().date()
     successful_upstream_calls = 0
 
@@ -272,10 +326,16 @@ def fetch_eod_prices():
         successful_upstream_calls += 1
         if records:
             for item in records:
+                market_date = _resolve_quote_market_date(
+                    is_local=True,
+                    currency=item.get('currency') or 'PEN',
+                    market_timestamp=item.get('market_timestamp'),
+                )
                 defaults = {
                     'name': item.get('name') or item.get('symbol'),
                     'current_price': item.get('current_price'),
                     'previous_close': item.get('previous_close'),
+                    'previous_close_date': _resolve_previous_close_date(item['symbol'], market_date),
                     'currency': item.get('currency') or 'PEN',
                     'company_code': item.get('company_code', ''),
                     'is_local': True,
@@ -290,7 +350,7 @@ def fetch_eod_prices():
                 if current_price and current_price > 0:
                     HistoricalStockPrice.objects.update_or_create(
                         stock=stock,
-                        date=today,
+                        date=market_date,
                         defaults={'price': current_price}
                     )
     except RuntimeError:
@@ -326,6 +386,11 @@ def fetch_eod_prices():
                 current_price = stock_info.get('price', 0.0)
                 previous_close = stock_info.get('previousClose')
                 name = stock_info.get('name', 'Unknown')
+                market_date = _resolve_quote_market_date(
+                    is_local=False,
+                    currency=stock_info.get('currency') or 'USD',
+                    raw_timestamp=stock_info.get('timestamp'),
+                )
 
                 stock, created = Stock.objects.update_or_create(
                     symbol=symbol,
@@ -333,6 +398,7 @@ def fetch_eod_prices():
                         'name': name,
                         'current_price': current_price,
                         'previous_close': previous_close,
+                        'previous_close_date': _resolve_previous_close_date(symbol, market_date),
                         'company_code': '',
                         'is_local': False,
                     }
@@ -342,7 +408,7 @@ def fetch_eod_prices():
                 if current_price and current_price > 0:
                     HistoricalStockPrice.objects.update_or_create(
                         stock=stock,
-                        date=today,
+                        date=market_date,
                         defaults={'price': current_price}
                     )
 

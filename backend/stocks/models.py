@@ -1,8 +1,9 @@
 from django.db import models
 from decimal import Decimal
 from django.utils import timezone
-from datetime import timedelta
 from django.core.cache import cache
+
+from .market import get_market_date, previous_business_day
 
 class Stock(models.Model):
     symbol = models.CharField(max_length=10, unique=True)
@@ -35,6 +36,11 @@ class Stock(models.Model):
         blank=True,
         help_text='Previous day closing price for calculating daily changes'
     )
+    previous_close_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Trading date associated with previous_close'
+    )
     is_active = models.BooleanField(default=True)
     last_updated = models.DateTimeField(auto_now=True)
 
@@ -53,23 +59,24 @@ class Stock(models.Model):
             self.previous_close = self.previous_close.quantize(Decimal('0.01'))
         super().save(*args, **kwargs)
 
-    def get_previous_close(self):
-        """Get previous close from HistoricalStockPrice if not set"""
-        if self.previous_close:
-            return self.previous_close
+    def get_previous_close_info(self, now=None):
+        """Return the previous close value and the trading date it belongs to."""
+        reference_date = get_market_date(self, now=now)
+        inferred_close_date = HistoricalStockPrice.objects.filter(
+            stock=self,
+            date__lt=reference_date,
+        ).order_by('-date').values_list('date', flat=True).first()
 
-        # Try to get from historical data (yesterday's price)
-        today = timezone.now().date()
-        yesterday = today - timedelta(days=1)
+        if self.previous_close is not None:
+            return self.previous_close, (self.previous_close_date or inferred_close_date or previous_business_day(reference_date))
 
-        # Try up to 7 days back to find last trading day
-        for i in range(1, 8):
-            check_date = today - timedelta(days=i)
-            hist_price = HistoricalStockPrice.get_price(self, check_date)
-            if hist_price:
-                return hist_price
+        if inferred_close_date:
+            return HistoricalStockPrice.get_price(self, inferred_close_date), inferred_close_date
 
-        return None
+        return None, None
+
+    def get_previous_close(self, now=None):
+        return self.get_previous_close_info(now=now)[0]
 
     @property
     def price_change(self):
@@ -78,7 +85,7 @@ class Stock(models.Model):
             return None
 
         prev_close = self.get_previous_close()
-        if prev_close:
+        if prev_close is not None:
             return self.current_price - prev_close
         return None
 
@@ -89,7 +96,7 @@ class Stock(models.Model):
             return None
 
         prev_close = self.get_previous_close()
-        if prev_close and prev_close != 0:
+        if prev_close is not None and prev_close != 0:
             return ((self.current_price - prev_close) / prev_close) * 100
         return None
 

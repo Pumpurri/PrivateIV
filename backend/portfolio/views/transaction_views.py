@@ -5,8 +5,7 @@ from datetime import datetime, time
 from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError
-from django.db.models import Count, Sum, F, ExpressionWrapper, DecimalField
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import generics, permissions, status
@@ -16,6 +15,11 @@ from rest_framework.throttling import UserRateThrottle
 
 from portfolio.models import Portfolio, Transaction
 from portfolio.serializers.transaction_serializers import TransactionSerializer
+from portfolio.services.currency_service import (
+    get_portfolio_reporting_currency,
+    get_transaction_amount_in_currency,
+    normalize_currency,
+)
 from portfolio.services.transaction_service import TransactionService
 
 logger = logging.getLogger(__name__)
@@ -72,6 +76,17 @@ class TransactionListView(generics.ListAPIView):
             parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
         return parsed
 
+    def _parse_currency(self, param_name, *, required=False):
+        value = self.request.query_params.get(param_name)
+        if not value:
+            if required:
+                raise DRFValidationError({param_name: 'Currency is required.'})
+            return None
+        try:
+            return normalize_currency(value)
+        except ValueError as exc:
+            raise DRFValidationError({param_name: str(exc)}) from exc
+
     def get_queryset(self):
         qs = Transaction.objects.filter(
             portfolio__user=self.request.user,
@@ -89,6 +104,15 @@ class TransactionListView(generics.ListAPIView):
         symbol = self.request.query_params.get('symbol')
         if symbol:
             qs = qs.filter(stock__symbol__iexact=symbol.strip())
+
+        currency = self._parse_currency('currency')
+        if currency:
+            qs = qs.filter(
+                Q(transaction_type__in=[Transaction.TransactionType.BUY, Transaction.TransactionType.SELL], stock__currency=currency)
+                | Q(transaction_type__in=[Transaction.TransactionType.DEPOSIT, Transaction.TransactionType.WITHDRAWAL], cash_currency=currency)
+                | Q(transaction_type=Transaction.TransactionType.CONVERT, cash_currency=currency)
+                | Q(transaction_type=Transaction.TransactionType.CONVERT, counter_currency=currency)
+            )
 
         date_from = (
             self._parse_datetime_filter('date_from')
@@ -111,19 +135,12 @@ class TransactionListView(generics.ListAPIView):
         return f"{(value or Decimal('0.00')):.2f}"
 
     @classmethod
-    def _build_totals(cls, queryset):
-        amount_base_expr = ExpressionWrapper(
-            F('amount') * Coalesce(F('fx_rate'), 1),
-            output_field=DecimalField(max_digits=20, decimal_places=6),
-        )
-        qs = queryset.annotate(amount_base=amount_base_expr)
-
-        aggregate = qs.aggregate(
-            total_count=Count('id'),
-            total_amount=Sum('amount'),
-            total_amount_base=Sum('amount_base'),
-            total_quantity=Sum('quantity'),
-        )
+    def _build_totals(cls, queryset, *, display_currency, currency_filter=None):
+        total_count = queryset.count()
+        total_quantity = sum(int(tx.quantity or 0) for tx in queryset)
+        total_amount_display = Decimal('0.00')
+        total_amount_native = Decimal('0.00')
+        total_amount_pen = Decimal('0.00')
 
         by_type = {
             choice.value: {
@@ -131,53 +148,93 @@ class TransactionListView(generics.ListAPIView):
                 'amount': '0.00',
                 'amount_native': '0.00',
                 'amount_base': '0.00',
+                'amount_display': '0.00',
+                'display_currency': display_currency,
                 'quantity': 0,
             }
             for choice in Transaction.TransactionType
         }
 
-        for row in qs.values('transaction_type').annotate(
-            count=Count('id'),
-            amount_native=Sum('amount'),
-            amount_base=Sum('amount_base'),
-            quantity=Sum('quantity'),
-        ):
-            by_type[row['transaction_type']] = {
-                'count': row['count'],
-                'amount': cls._format_decimal(row['amount_native']),
-                'amount_native': cls._format_decimal(row['amount_native']),
-                'amount_base': cls._format_decimal(row['amount_base']),
-                'quantity': row['quantity'] or 0,
-            }
+        for tx in queryset:
+            display_amount = get_transaction_amount_in_currency(
+                tx,
+                display_currency,
+                use_counter_amount=bool(currency_filter and tx.transaction_type == Transaction.TransactionType.CONVERT and tx.counter_currency == currency_filter),
+                snapshot_date=tx.timestamp.date(),
+            )
+            pen_amount = get_transaction_amount_in_currency(
+                tx,
+                'PEN',
+                snapshot_date=tx.timestamp.date(),
+            )
+            native_amount = Decimal(tx.amount or '0.00')
+
+            total_amount_display += display_amount
+            total_amount_native += native_amount
+            total_amount_pen += pen_amount
+
+            bucket = by_type[tx.transaction_type]
+            bucket['count'] += 1
+            bucket['quantity'] += int(tx.quantity or 0)
+            bucket['amount_native'] = cls._format_decimal(Decimal(bucket['amount_native']) + native_amount)
+            bucket['amount_base'] = cls._format_decimal(Decimal(bucket['amount_base']) + pen_amount)
+            bucket['amount_display'] = cls._format_decimal(Decimal(bucket['amount_display']) + display_amount)
+            bucket['amount'] = bucket['amount_native']
 
         deposit_base = Decimal(by_type[Transaction.TransactionType.DEPOSIT]['amount_base'])
         withdrawal_base = Decimal(by_type[Transaction.TransactionType.WITHDRAWAL]['amount_base'])
 
         return {
-            'count': aggregate['total_count'],
-            'amount': cls._format_decimal(aggregate['total_amount']),
-            'amount_native': cls._format_decimal(aggregate['total_amount']),
-            'amount_base': cls._format_decimal(aggregate['total_amount_base']),
-            'quantity': aggregate['total_quantity'] or 0,
+            'count': total_count,
+            'amount': cls._format_decimal(total_amount_native),
+            'amount_native': cls._format_decimal(total_amount_native),
+            'amount_base': cls._format_decimal(total_amount_pen),
+            'amount_display': cls._format_decimal(total_amount_display),
+            'display_currency': display_currency,
+            'quantity': total_quantity,
             'net_cash_flow': cls._format_decimal(deposit_base - withdrawal_base),
             'by_type': by_type,
         }
 
+    def _resolve_display_currency(self, queryset):
+        explicit = self._parse_currency('display_currency')
+        if explicit:
+            return explicit
+
+        currency_filter = self._parse_currency('currency')
+        if currency_filter:
+            return currency_filter
+
+        portfolio_id = self._parse_portfolio_id()
+        if portfolio_id is not None:
+            portfolio = Portfolio.objects.filter(user=self.request.user, pk=portfolio_id).only('reporting_currency').first()
+            if portfolio:
+                return get_portfolio_reporting_currency(portfolio)
+
+        default_portfolio = self.request.user.portfolios.filter(is_default=True, is_deleted=False).only('reporting_currency').first()
+        if default_portfolio:
+            return get_portfolio_reporting_currency(default_portfolio)
+        return 'PEN'
+
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-        totals = self._build_totals(queryset)
+        display_currency = self._resolve_display_currency(queryset)
+        currency_filter = self._parse_currency('currency')
+        totals = self._build_totals(queryset, display_currency=display_currency, currency_filter=currency_filter)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = self.get_serializer(page, many=True, context={**self.get_serializer_context(), 'display_currency': display_currency})
             response = self.get_paginated_response(serializer.data)
             response.data['totals'] = totals
+            response.data['display_currency'] = display_currency
             return response
 
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(queryset, many=True, context={**self.get_serializer_context(), 'display_currency': display_currency})
         return Response({
             'results': serializer.data,
             'totals': totals,
+            'display_currency': display_currency,
         })
 
 

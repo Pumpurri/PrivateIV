@@ -29,6 +29,7 @@ class Transaction(models.Model):
         SELL = 'SELL', 'Sell Order'
         DEPOSIT = 'DEPOSIT', 'Cash Deposit'
         WITHDRAWAL = 'WITHDRAWAL', 'Cash Withdrawal'
+        CONVERT = 'CONVERT', 'FX Conversion'
 
     portfolio = models.ForeignKey(
         'portfolio.Portfolio',
@@ -48,6 +49,25 @@ class Transaction(models.Model):
         validators=[MinValueValidator(0.01)],
         null=True,
         blank=True
+    )
+    cash_currency = models.CharField(
+        max_length=3,
+        null=True,
+        blank=True,
+        help_text='Currency of the cash wallet affected by the transaction (e.g., PEN, USD)'
+    )
+    counter_currency = models.CharField(
+        max_length=3,
+        null=True,
+        blank=True,
+        help_text='Target currency for FX conversion transactions'
+    )
+    counter_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text='Amount received in counter_currency for FX conversion transactions'
     )
     stock = models.ForeignKey(
         'stocks.Stock',
@@ -106,6 +126,8 @@ class Transaction(models.Model):
         trade_types = [self.TransactionType.BUY, self.TransactionType.SELL]
         if self.transaction_type in trade_types:
             self._validate_trade_transaction()
+        elif self.transaction_type == self.TransactionType.CONVERT:
+            self._validate_conversion_transaction()
         else:
             self._validate_non_trade_transaction()
 
@@ -120,6 +142,23 @@ class Transaction(models.Model):
         if self.executed_price is None and self.amount is not None:
             errors['amount'] = 'Amount should be calculated automatically for trades'
         
+        if errors:
+            raise ValidationError(errors)
+
+    def _validate_conversion_transaction(self):
+        errors = {}
+        if self.stock is not None:
+            errors['stock'] = 'Stock must be null for FX conversion transactions'
+        if self.quantity is not None:
+            errors['quantity'] = 'Quantity must be null for FX conversion transactions'
+        if self.amount is None:
+            errors['amount'] = 'Amount required for FX conversion transactions'
+        if not self.cash_currency:
+            errors['cash_currency'] = 'Source currency is required for FX conversion transactions'
+        if not self.counter_currency:
+            errors['counter_currency'] = 'Target currency is required for FX conversion transactions'
+        if self.cash_currency and self.counter_currency and self.cash_currency == self.counter_currency:
+            errors['counter_currency'] = 'Target currency must differ from source currency'
         if errors:
             raise ValidationError(errors)
 

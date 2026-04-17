@@ -1,10 +1,12 @@
 import pytest
+from datetime import date
 from decimal import Decimal
 from django.core.cache import cache
 from django.utils import timezone
+from portfolio.models import FXRate
 from portfolio.services import SnapshotService
 from portfolio.models import DailyPortfolioSnapshot, Transaction
-from portfolio.tests.factories import TransactionFactory
+from portfolio.tests.factories import PortfolioFactory, TransactionFactory
 from stocks.tests.factories import StockFactory
 from datetime import timedelta
 
@@ -55,3 +57,52 @@ class TestSnapshotService:
 
         refreshed_holdings = SnapshotService._get_historical_holdings(portfolio, snapshot_date)
         assert set(refreshed_holdings.keys()) == {stock_a.id, stock_b.id}
+
+    def test_historical_cash_reconstructs_usd_wallets_and_conversions(self, portfolio, set_fx_market_now):
+        portfolio = PortfolioFactory(user=portfolio.user, is_default=False)
+        trade_day = date(2026, 4, 16)
+        snapshot_day = date(2026, 4, 17)
+
+        FXRate.objects.create(
+            date=trade_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='venta',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=trade_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.45'),
+            rate_type='mid',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=snapshot_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('4.00'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        set_fx_market_now(trade_day)
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('350.00'),
+            cash_currency='PEN',
+        )
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.CONVERT,
+            amount=Decimal('350.00'),
+            cash_currency='PEN',
+            counter_currency='USD',
+        )
+
+        historical_cash = SnapshotService._get_historical_cash(portfolio, snapshot_day)
+
+        assert historical_cash == Decimal('400.00')

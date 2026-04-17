@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 from portfolio.services.historical_valuation import HistoricalValuationService
+from portfolio.services.currency_service import convert_amount, normalize_currency
 
 
 class ActivePortfolioManager(models.Manager):
@@ -39,7 +40,18 @@ class Portfolio(models.Model):
         default='PEN',
         help_text='ISO 4217 currency code used as the base for valuation (e.g., PEN, USD)'
     )
+    reporting_currency = models.CharField(
+        max_length=3,
+        default='PEN',
+        help_text='Default currency used for dashboard/reporting metrics (e.g., PEN, USD)'
+    )
     cash_balance = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=Decimal('0'),
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    cash_balance_usd = models.DecimalField(
         max_digits=15,
         decimal_places=2,
         default=Decimal('0'),
@@ -60,6 +72,10 @@ class Portfolio(models.Model):
             models.CheckConstraint(
                 check=Q(cash_balance__gte=0),
                 name='cash_balance_non_negative'
+            ),
+            models.CheckConstraint(
+                check=Q(cash_balance_usd__gte=0),
+                name='cash_balance_usd_non_negative'
             )
         ]
         indexes = [
@@ -74,7 +90,24 @@ class Portfolio(models.Model):
 
     @property
     def total_value(self):
-        return self.cash_balance + self.current_investment_value
+        return self.get_total_cash_balance(self.base_currency) + self.current_investment_value
+
+    def get_cash_balance(self, currency):
+        currency = normalize_currency(currency, default='PEN')
+        if currency == 'PEN':
+            return self.cash_balance
+        if currency == 'USD':
+            return self.cash_balance_usd
+        raise ValidationError(f"Unsupported currency: {currency}")
+
+    def get_total_cash_balance(self, currency=None, *, now=None, snapshot_date=None, session=None):
+        target_currency = normalize_currency(currency or self.base_currency, default='PEN')
+        pen_balance = self.cash_balance
+        usd_balance = self.cash_balance_usd
+        return (
+            convert_amount(pen_balance, 'PEN', target_currency, snapshot_date=snapshot_date, now=now, session=session)
+            + convert_amount(usd_balance, 'USD', target_currency, snapshot_date=snapshot_date, now=now, session=session)
+        ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     @property
     def current_investment_value(self):
@@ -114,23 +147,35 @@ class Portfolio(models.Model):
             # Historical calculation (uses historical FX internally)
             return HistoricalValuationService.get_historical_value(self, as_of_date)
     
-    def adjust_cash(self, amount):
+    def adjust_cash(self, amount, currency=None):
         amount = Decimal(amount)
+        target_currency = normalize_currency(currency or self.base_currency, default='PEN')
         with transaction.atomic():
             locked = Portfolio.objects.select_for_update().get(pk=self.pk)
-            new_balance = locked.cash_balance + amount
+            current_balance = locked.get_cash_balance(target_currency)
+            new_balance = current_balance + amount
             if new_balance < Decimal('0'):
                 raise ValidationError("Insufficient funds")
-            locked.cash_balance = new_balance.quantize(
-                Decimal('0.01'),
-                rounding=ROUND_HALF_UP
-            )
-            locked.save(update_fields=['cash_balance'])
-            self.cash_balance = locked.cash_balance
+            if target_currency == 'PEN':
+                locked.cash_balance = new_balance.quantize(
+                    Decimal('0.01'),
+                    rounding=ROUND_HALF_UP
+                )
+                locked.save(update_fields=['cash_balance'])
+                self.cash_balance = locked.cash_balance
+            else:
+                locked.cash_balance_usd = new_balance.quantize(
+                    Decimal('0.01'),
+                    rounding=ROUND_HALF_UP
+                )
+                locked.save(update_fields=['cash_balance_usd'])
+                self.cash_balance_usd = locked.cash_balance_usd
 
     def clean(self):
         if self.cash_balance < Decimal('0'):
             raise ValidationError("Cash balance cannot be negative.")
+        if self.cash_balance_usd < Decimal('0'):
+            raise ValidationError("USD cash balance cannot be negative.")
 
     def delete(self, using=None, keep_parents=False):
         if self.is_deleted:
