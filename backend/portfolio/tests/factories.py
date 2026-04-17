@@ -15,6 +15,7 @@ class PortfolioFactory(DjangoModelFactory):
     user = factory.SubFactory('users.tests.factories.UserFactory')
     is_default = False
     cash_balance = Decimal('0.00')
+    cash_balance_usd = Decimal('0.00')
 
     class Params:
         default = factory.Trait(
@@ -27,6 +28,7 @@ class PortfolioFactory(DjangoModelFactory):
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
         cash_balance = kwargs.pop('cash_balance', Decimal('0.00'))
+        cash_balance_usd = kwargs.pop('cash_balance_usd', Decimal('0.00'))
         portfolio = super()._create(model_class, *args, **kwargs)
         
         if cash_balance != Decimal('0.00'):
@@ -35,6 +37,14 @@ class PortfolioFactory(DjangoModelFactory):
                 'portfolio': portfolio,
                 'transaction_type': Transaction.TransactionType.DEPOSIT,
                 'amount': cash_balance,
+                'idempotency_key': str(uuid.uuid4())
+            })
+        if cash_balance_usd != Decimal('0.00'):
+            TransactionService.execute_transaction({
+                'portfolio': portfolio,
+                'transaction_type': Transaction.TransactionType.DEPOSIT,
+                'amount': cash_balance_usd,
+                'cash_currency': 'USD',
                 'idempotency_key': str(uuid.uuid4())
             })
         return portfolio
@@ -65,23 +75,35 @@ class TransactionFactory(DjangoModelFactory):
         stock = kwargs.get('stock')
         quantity = kwargs.get('quantity')
         amount = kwargs.get('amount')
+        cash_currency = kwargs.get('cash_currency')
+        counter_currency = kwargs.get('counter_currency')
+        idempotency_key = kwargs.get('idempotency_key') or str(uuid.uuid4())
+        timestamp = kwargs.get('timestamp')
         
         # Build transaction data for service
         transaction_data = {
             'portfolio': portfolio,
             'transaction_type': transaction_type,
-            'idempotency_key': str(uuid.uuid4())
+            'idempotency_key': idempotency_key,
         }
         
         if stock:
             transaction_data['stock'] = stock
         if quantity:
             transaction_data['quantity'] = quantity
-        if amount and transaction_type in ['DEPOSIT', 'WITHDRAWAL']:
+        if amount and transaction_type in ['DEPOSIT', 'WITHDRAWAL', 'CONVERT']:
             transaction_data['amount'] = amount
+        if cash_currency:
+            transaction_data['cash_currency'] = cash_currency
+        if counter_currency:
+            transaction_data['counter_currency'] = counter_currency
             
         # Create through service
-        return TransactionService.execute_transaction(transaction_data)
+        transaction = TransactionService.execute_transaction(transaction_data)
+        if timestamp is not None:
+            Transaction.all_objects.filter(pk=transaction.pk).update(timestamp=timestamp)
+            transaction.refresh_from_db()
+        return transaction
 
     class Params:
         buy = factory.Trait(

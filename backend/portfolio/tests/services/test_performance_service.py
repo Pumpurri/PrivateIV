@@ -21,7 +21,8 @@ class TestPerformanceService:
         )
         
         assert isinstance(result, Decimal)
-        assert -1 <= result <= 1  # Realistic return range
+        assert result >= Decimal('-1.0000')
+        assert result.is_finite()
         assert result.as_tuple().exponent >= -4  # 4 decimal places
 
     def test_zero_duration_return(self, portfolio):

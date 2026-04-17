@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.core.exceptions import ValidationError
 import logging
 from portfolio.models import Transaction, Holding, RealizedPNL, PortfolioPerformance
+from portfolio.services.currency_service import convert_with_pen_per_usd_rate, normalize_currency
 from portfolio.services.tracing import span
 from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 from uuid import uuid4
@@ -63,6 +64,7 @@ class TransactionService:
             Transaction.TransactionType.SELL: cls._process_sell,
             Transaction.TransactionType.DEPOSIT: cls._process_deposit,
             Transaction.TransactionType.WITHDRAWAL: cls._process_withdrawal,
+            Transaction.TransactionType.CONVERT: cls._process_convert,
         }
         
         if transaction_type not in handlers:
@@ -97,34 +99,35 @@ class TransactionService:
         portfolio = transaction.portfolio
         stock = cls._validate_stock(transaction.stock)
         quantity = cls._validate_quantity(transaction.quantity)
-        
+        original_currency = normalize_currency(getattr(stock, 'currency', None) or portfolio.base_currency)
+        settlement_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
         current_price = cls._validate_price(stock.current_price)
         total_cost_native = (Decimal(quantity) * current_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
         fx_date, session = get_current_fx_context()
-
-        # Apply FX only when stock currency differs from portfolio base
-        if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
-            # BUY (PEN -> USD): use 'venta' (bank sells USD)
-            fx = get_fx_rate(
-                fx_date,
-                portfolio.base_currency,
-                stock.currency,
-                rate_type='venta',
-                session=session,
-                require_rate=True
-            )
-            logger.info(f"[FX DEBUG] Buying {stock.symbol}: stock.currency={stock.currency}, portfolio.base={portfolio.base_currency}, fx_rate={fx}, session={session}")
-            total_cost_base = (total_cost_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            price_per_share_base = (current_price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            logger.info(f"[FX DEBUG] total_cost_native=${total_cost_native}, total_cost_base={total_cost_base} {portfolio.base_currency}")
-            transaction.fx_rate = fx
-            transaction.fx_rate_type = 'venta'
-        else:
-            total_cost_base = total_cost_native
-            price_per_share_base = current_price
+        pen_per_usd_rate, fx_rate_type = cls._get_pen_per_usd_rate_for_settlement(
+            fx_date=fx_date,
+            session=session,
+            original_currency=original_currency,
+            settlement_currency=settlement_currency,
+            trade_direction='BUY',
+        )
+        settlement_amount = cls._convert_original_to_settlement_amount(
+            total_cost_native,
+            original_currency=original_currency,
+            settlement_currency=settlement_currency,
+            pen_per_usd_rate=pen_per_usd_rate,
+        )
+        price_per_share_base = cls._convert_original_to_pen_amount(
+            current_price,
+            original_currency=original_currency,
+            pen_per_usd_rate=pen_per_usd_rate,
+        )
+        transaction.cash_currency = settlement_currency
+        transaction.fx_rate = pen_per_usd_rate
+        transaction.fx_rate_type = fx_rate_type
         with span("transaction.buy", resource=str(stock.symbol), tags={"quantity": quantity}):
-            portfolio.adjust_cash(-total_cost_base)
+            portfolio.adjust_cash(-settlement_amount, currency=settlement_currency)
             portfolio.holdings.process_purchase(
                 portfolio=portfolio,
                 stock=stock,
@@ -141,7 +144,8 @@ class TransactionService:
         portfolio = transaction.portfolio
         stock = cls._validate_stock(transaction.stock)
         quantity = cls._validate_quantity(transaction.quantity)
-        
+        original_currency = normalize_currency(getattr(stock, 'currency', None) or portfolio.base_currency)
+        settlement_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
         current_price = cls._validate_price(stock.current_price)
         total_revenue_native = (Decimal(quantity) * current_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
@@ -152,23 +156,27 @@ class TransactionService:
         purchase_price_base = holding.average_purchase_price
         
         fx_date, session = get_current_fx_context()
-        if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
-            # SELL (USD -> PEN): use 'compra' (bank buys USD)
-            fx = get_fx_rate(
-                fx_date,
-                portfolio.base_currency,
-                stock.currency,
-                rate_type='compra',
-                session=session,
-                require_rate=True
-            )
-            total_revenue_base = (total_revenue_native * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            sell_price_base = (current_price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            transaction.fx_rate = fx
-            transaction.fx_rate_type = 'compra'
-        else:
-            total_revenue_base = total_revenue_native
-            sell_price_base = current_price
+        pen_per_usd_rate, fx_rate_type = cls._get_pen_per_usd_rate_for_settlement(
+            fx_date=fx_date,
+            session=session,
+            original_currency=original_currency,
+            settlement_currency=settlement_currency,
+            trade_direction='SELL',
+        )
+        settlement_amount = cls._convert_original_to_settlement_amount(
+            total_revenue_native,
+            original_currency=original_currency,
+            settlement_currency=settlement_currency,
+            pen_per_usd_rate=pen_per_usd_rate,
+        )
+        sell_price_base = cls._convert_original_to_pen_amount(
+            current_price,
+            original_currency=original_currency,
+            pen_per_usd_rate=pen_per_usd_rate,
+        )
+        transaction.cash_currency = settlement_currency
+        transaction.fx_rate = pen_per_usd_rate
+        transaction.fx_rate_type = fx_rate_type
 
         pnl_value = ((sell_price_base - purchase_price_base) * Decimal(quantity)).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
@@ -180,7 +188,7 @@ class TransactionService:
                 stock=stock,
                 quantity=quantity
             )
-            portfolio.adjust_cash(total_revenue_base)
+            portfolio.adjust_cash(settlement_amount, currency=settlement_currency)
 
         # Store PNL data for post-processing
         transaction._pnl_data = {
@@ -199,6 +207,9 @@ class TransactionService:
         """Regulation D compliant deposit processing"""
         amount = cls._validate_amount(transaction.amount)
         portfolio = transaction.portfolio
+        cash_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
+        fx_date, session = get_current_fx_context()
+        mid_rate = cls._get_mid_pen_per_usd_rate(fx_date, session)
         
         # Ensure performance record exists
         performance, _ = PortfolioPerformance.objects.get_or_create(
@@ -206,15 +217,21 @@ class TransactionService:
         )
         
         with span("transaction.deposit", resource=str(portfolio.id), tags={"amount": str(amount)}):
-            portfolio.adjust_cash(amount)
-        performance.total_deposits += amount
+            portfolio.adjust_cash(amount, currency=cash_currency)
+        performance.total_deposits += cls._convert_original_to_pen_amount(amount, cash_currency, mid_rate)
         performance.save(update_fields=['total_deposits'])
+        transaction.cash_currency = cash_currency
+        transaction.fx_rate = mid_rate
+        transaction.fx_rate_type = 'mid'
         transaction.executed_price = None
 
     @classmethod
     def _process_withdrawal(cls, transaction):
         amount = cls._validate_amount(transaction.amount)
         portfolio = transaction.portfolio
+        cash_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
+        fx_date, session = get_current_fx_context()
+        mid_rate = cls._get_mid_pen_per_usd_rate(fx_date, session)
         
         # Ensure performance record exists
         performance, _ = PortfolioPerformance.objects.get_or_create(
@@ -222,9 +239,47 @@ class TransactionService:
         )
         
         with span("transaction.withdrawal", resource=str(portfolio.id), tags={"amount": str(amount)}):
-            portfolio.adjust_cash(-amount)
-        performance.total_withdrawals += amount
+            portfolio.adjust_cash(-amount, currency=cash_currency)
+        performance.total_withdrawals += cls._convert_original_to_pen_amount(amount, cash_currency, mid_rate)
         performance.save(update_fields=['total_withdrawals'])
+        transaction.cash_currency = cash_currency
+        transaction.fx_rate = mid_rate
+        transaction.fx_rate_type = 'mid'
+        transaction.executed_price = None
+
+    @classmethod
+    def _process_convert(cls, transaction):
+        amount = cls._validate_amount(transaction.amount)
+        portfolio = transaction.portfolio
+        source_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
+        target_currency = normalize_currency(transaction.counter_currency)
+        if source_currency == target_currency:
+            raise ValidationError("FX conversion requires different source and target currencies")
+
+        fx_date, session = get_current_fx_context()
+        pen_per_usd_rate, fx_rate_type = cls._get_pen_per_usd_rate_for_settlement(
+            fx_date=fx_date,
+            session=session,
+            original_currency=source_currency,
+            settlement_currency=target_currency,
+            trade_direction='CONVERT',
+        )
+        converted_amount = cls._convert_original_to_settlement_amount(
+            amount,
+            original_currency=source_currency,
+            settlement_currency=target_currency,
+            pen_per_usd_rate=pen_per_usd_rate,
+        )
+
+        with span("transaction.convert", resource=str(portfolio.id), tags={"amount": str(amount)}):
+            portfolio.adjust_cash(-amount, currency=source_currency)
+            portfolio.adjust_cash(converted_amount, currency=target_currency)
+
+        transaction.cash_currency = source_currency
+        transaction.counter_currency = target_currency
+        transaction.counter_amount = converted_amount
+        transaction.fx_rate = pen_per_usd_rate
+        transaction.fx_rate_type = fx_rate_type
         transaction.executed_price = None
 
     @classmethod
@@ -261,6 +316,71 @@ class TransactionService:
         if amount <= Decimal('0'):
             raise ValidationError(f"Invalid amount: {amount}")
         return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @classmethod
+    def _resolve_settlement_currency(cls, transaction, *, default_currency):
+        requested_currency = transaction.cash_currency or default_currency
+        return normalize_currency(requested_currency, default=default_currency)
+
+    @classmethod
+    def _get_mid_pen_per_usd_rate(cls, fx_date, session):
+        return get_fx_rate(
+            fx_date,
+            'PEN',
+            'USD',
+            rate_type='mid',
+            session=session,
+        )
+
+    @classmethod
+    def _get_pen_per_usd_rate_for_settlement(cls, *, fx_date, session, original_currency, settlement_currency, trade_direction):
+        original_currency = normalize_currency(original_currency)
+        settlement_currency = normalize_currency(settlement_currency)
+
+        if original_currency == settlement_currency:
+            return cls._get_mid_pen_per_usd_rate(fx_date, session), 'mid'
+
+        if original_currency == 'USD' and settlement_currency == 'PEN':
+            rate_type = 'venta' if trade_direction == Transaction.TransactionType.BUY else 'compra'
+            return get_fx_rate(
+                fx_date,
+                'PEN',
+                'USD',
+                rate_type=rate_type,
+                session=session,
+                require_rate=True,
+            ), rate_type
+
+        if original_currency == 'PEN' and settlement_currency == 'USD':
+            rate_type = 'compra' if trade_direction == Transaction.TransactionType.BUY else 'venta'
+            return get_fx_rate(
+                fx_date,
+                'PEN',
+                'USD',
+                rate_type=rate_type,
+                session=session,
+                require_rate=True,
+            ), rate_type
+
+        return cls._get_mid_pen_per_usd_rate(fx_date, session), 'mid'
+
+    @classmethod
+    def _convert_original_to_settlement_amount(cls, amount, *, original_currency, settlement_currency, pen_per_usd_rate):
+        return convert_with_pen_per_usd_rate(
+            amount,
+            original_currency,
+            settlement_currency,
+            pen_per_usd_rate,
+        )
+
+    @classmethod
+    def _convert_original_to_pen_amount(cls, amount, original_currency, pen_per_usd_rate):
+        return convert_with_pen_per_usd_rate(
+            amount,
+            original_currency,
+            'PEN',
+            pen_per_usd_rate,
+        )
 
     @classmethod
     def _post_process_transaction(cls, transaction):

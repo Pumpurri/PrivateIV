@@ -3,13 +3,14 @@ from django.db import models, IntegrityError, transaction
 import time
 from decimal import Decimal, DivisionByZero, ROUND_HALF_UP
 import logging
-from django.db.models import Count, Sum, Q, Max
+from django.db.models import Count, Max
 from django.utils import timezone
 from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
 from portfolio.models.transaction import Transaction
 from django.db.models import Case, When, F, Value, IntegerField
 from stocks.models import Stock
 from portfolio.models.holding_snapshot import HoldingSnapshot
+from portfolio.services.currency_service import convert_amount, get_transaction_amount_in_currency, normalize_currency
 from portfolio.services.fx_service import get_fx_rate
 from django.core.cache import cache
 from portfolio.services.tracing import span
@@ -17,49 +18,78 @@ from portfolio.services.tracing import span
 logger = logging.getLogger(__name__)
 
 class SnapshotService:
+    @staticmethod
+    def _quantize_money(value):
+        return Decimal(value or '0.00').quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @classmethod
+    def _wallets_to_base(cls, portfolio, wallets, snapshot_date):
+        return cls._quantize_money(
+            convert_amount(
+                wallets['PEN'],
+                'PEN',
+                portfolio.base_currency,
+                snapshot_date=snapshot_date,
+                session='cierre',
+            )
+            + convert_amount(
+                wallets['USD'],
+                'USD',
+                portfolio.base_currency,
+                snapshot_date=snapshot_date,
+                session='cierre',
+            )
+        )
+
     @classmethod
     def _get_historical_cash(cls, portfolio, snapshot_date):
         """Calculate cash balance as of snapshot date using transaction history with error handling.
 
-        This method properly accounts for all transaction types:
-        - DEPOSIT: adds cash (positive amount)
-        - WITHDRAWAL: removes cash (negative amount stored as positive, so we negate)
-        - BUY: removes cash (amount * fx_rate if applicable)
-        - SELL: adds cash (amount * fx_rate if applicable)
+        This reconstructs PEN and USD wallets separately and only converts to the
+        portfolio base currency at the snapshot date. That keeps historical cash
+        balances correct when the user holds USD cash or performs FX conversions.
         """
         try:
             transactions = Transaction.objects.filter(
                 portfolio=portfolio,
                 timestamp__date__lte=snapshot_date
-            ).select_related('stock').order_by('timestamp')
+            ).select_related('stock').order_by('timestamp', 'id')
 
-            cash_balance = Decimal('0.00')
-
+            wallets = {'PEN': Decimal('0.00'), 'USD': Decimal('0.00')}
             for txn in transactions:
                 amount = Decimal(str(txn.amount)) if txn.amount else Decimal('0.00')
-                fx_rate = Decimal(str(txn.fx_rate)) if txn.fx_rate else Decimal('1.00')
+                cash_currency = normalize_currency(txn.cash_currency or portfolio.base_currency)
 
                 if txn.transaction_type == Transaction.TransactionType.DEPOSIT:
-                    # Deposits add cash
-                    cash_balance += amount
-
+                    wallets[cash_currency] += amount
                 elif txn.transaction_type == Transaction.TransactionType.WITHDRAWAL:
-                    # Withdrawals remove cash (amount is stored as positive)
-                    cash_balance -= amount
-
+                    wallets[cash_currency] -= amount
                 elif txn.transaction_type == Transaction.TransactionType.BUY:
-                    # BUY removes cash
-                    # Amount is in native currency (e.g., USD), need to convert to base currency (e.g., PEN)
-                    cash_in_base = amount * fx_rate
-                    cash_balance -= cash_in_base
-
+                    settlement_amount = get_transaction_amount_in_currency(
+                        txn,
+                        cash_currency,
+                        snapshot_date=txn.timestamp.date(),
+                    )
+                    wallets[cash_currency] -= settlement_amount
                 elif txn.transaction_type == Transaction.TransactionType.SELL:
-                    # SELL adds cash
-                    # Amount is in native currency, need to convert to base currency
-                    cash_in_base = amount * fx_rate
-                    cash_balance += cash_in_base
+                    settlement_amount = get_transaction_amount_in_currency(
+                        txn,
+                        cash_currency,
+                        snapshot_date=txn.timestamp.date(),
+                    )
+                    wallets[cash_currency] += settlement_amount
+                elif txn.transaction_type == Transaction.TransactionType.CONVERT:
+                    target_currency = normalize_currency(txn.counter_currency)
+                    counter_amount = Decimal(str(txn.counter_amount)) if txn.counter_amount else get_transaction_amount_in_currency(
+                        txn,
+                        target_currency,
+                        use_counter_amount=True,
+                        snapshot_date=txn.timestamp.date(),
+                    )
+                    wallets[cash_currency] -= amount
+                    wallets[target_currency] += counter_amount
 
-            return cash_balance.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            return cls._wallets_to_base(portfolio, wallets, snapshot_date)
 
         except Exception as e:
             logger.error(f"Error fetching historical cash for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
@@ -71,12 +101,19 @@ class SnapshotService:
     def _get_historical_deposits(cls, portfolio, snapshot_date):
         """Calculate total deposits as of snapshot date with error handling."""
         try:
-            deposit_data = Transaction.objects.filter(
+            deposits = Transaction.objects.filter(
                 portfolio=portfolio,
-                transaction_type='DEPOSIT',
+                transaction_type=Transaction.TransactionType.DEPOSIT,
                 timestamp__date__lte=snapshot_date
-            ).aggregate(total=Sum('amount'))
-            return deposit_data['total'] or Decimal('0.00')
+            )
+            total = Decimal('0.00')
+            for txn in deposits:
+                total += get_transaction_amount_in_currency(
+                    txn,
+                    portfolio.base_currency,
+                    snapshot_date=txn.timestamp.date(),
+                )
+            return cls._quantize_money(total)
         except Exception as e:
             logger.error(f"Error fetching historical deposits for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
             return Decimal('0.00')

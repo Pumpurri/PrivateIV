@@ -1,11 +1,12 @@
 import pytest
+from datetime import date, timedelta
 from decimal import Decimal
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
-from portfolio.models import Portfolio, Holding, PortfolioPerformance, Transaction
-from portfolio.tests.factories import PortfolioFactory, HoldingFactory
+from portfolio.models import FXRate, Portfolio, Holding, PortfolioPerformance, Transaction
+from portfolio.tests.factories import PortfolioFactory, HoldingFactory, TransactionFactory
 from stocks.tests.factories import StockFactory
 from users.tests.factories import UserFactory
 
@@ -223,6 +224,291 @@ class TestPortfolioHoldingsView:
         assert Decimal(aapl_data['current_value']) == Decimal('1500.00')
         assert Decimal(aapl_data['gain_loss']) == Decimal('100.00')
         assert float(aapl_data['gain_loss_percentage']) == 7.14  # (100 / 1400) * 100
+
+    def test_holdings_list_uses_pen_quote_metrics_for_usd_positions(self, set_quote_and_position_now):
+        user = UserFactory.create()
+        portfolio = user.portfolios.first()
+        stock = StockFactory.create(
+            symbol='NVDA',
+            current_price=Decimal('10.00'),
+            previous_close=Decimal('8.00'),
+            currency='USD',
+            is_local=False,
+        )
+        HoldingFactory.create(
+            portfolio=portfolio,
+            stock=stock,
+            quantity=2,
+            average_purchase_price=Decimal('20.00'),
+        )
+
+        market_date = date(2026, 4, 17)
+        set_quote_and_position_now(market_date)
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='mid',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date - timedelta(days=1),
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.40'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        self.client.force_authenticate(user=user)
+        url = reverse('portfolio-holdings', kwargs={'portfolio_id': portfolio.id})
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        holding_data = response.data['results'][0]
+        assert Decimal(holding_data['stock']['display_price']) == Decimal('35.00')
+        assert Decimal(holding_data['stock']['price_change']) == Decimal('7.80')
+        assert Decimal(holding_data['stock']['price_change_percent']) == Decimal('28.68')
+        assert Decimal(holding_data['current_value']) == Decimal('70.00')
+        assert Decimal(holding_data['day_change']) == Decimal('15.60')
+        assert Decimal(holding_data['day_change_percentage']) == Decimal('28.68')
+        assert Decimal(holding_data['cost_basis']) == Decimal('40.00')
+        assert Decimal(holding_data['gain_loss']) == Decimal('30.00')
+
+    def test_holdings_list_uses_today_buy_price_for_position_day_change(self, set_quote_and_position_now):
+        user = UserFactory.create()
+        portfolio = user.portfolios.first()
+        stock = StockFactory.create(
+            symbol='AAL',
+            current_price=Decimal('10.00'),
+            previous_close=Decimal('8.00'),
+            currency='USD',
+            is_local=False,
+        )
+        market_date = date(2026, 4, 17)
+        set_quote_and_position_now(market_date)
+
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='mid',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.60'),
+            rate_type='venta',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date - timedelta(days=1),
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.40'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('1000.00'),
+        )
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.BUY,
+            stock=stock,
+            quantity=1,
+        )
+
+        self.client.force_authenticate(user=user)
+        url = reverse('portfolio-holdings', kwargs={'portfolio_id': portfolio.id})
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        holding_data = response.data['results'][0]
+        assert Decimal(holding_data['current_value']) == Decimal('35.00')
+        assert Decimal(holding_data['cost_basis']) == Decimal('36.00')
+        assert Decimal(holding_data['day_change']) == Decimal('-1.00')
+        assert Decimal(holding_data['day_change_percentage']) == Decimal('-2.78')
+        assert Decimal(holding_data['gain_loss']) == Decimal('-1.00')
+
+    def test_holdings_list_splits_overnight_and_today_added_quantity_for_day_change(self, set_quote_and_position_now):
+        user = UserFactory.create()
+        portfolio = user.portfolios.first()
+        stock = StockFactory.create(
+            symbol='DAL',
+            current_price=Decimal('10.00'),
+            previous_close=Decimal('8.00'),
+            currency='USD',
+            is_local=False,
+        )
+        HoldingFactory.create(
+            portfolio=portfolio,
+            stock=stock,
+            quantity=2,
+            average_purchase_price=Decimal('30.00'),
+        )
+        market_date = date(2026, 4, 17)
+        set_quote_and_position_now(market_date)
+
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='mid',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.60'),
+            rate_type='venta',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date - timedelta(days=1),
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.40'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('1000.00'),
+        )
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.BUY,
+            stock=stock,
+            quantity=1,
+        )
+
+        self.client.force_authenticate(user=user)
+        url = reverse('portfolio-holdings', kwargs={'portfolio_id': portfolio.id})
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        holding_data = response.data['results'][0]
+        assert Decimal(holding_data['current_value']) == Decimal('105.00')
+        assert Decimal(holding_data['cost_basis']) == Decimal('96.00')
+        assert Decimal(holding_data['day_change']) == Decimal('14.60')
+        assert Decimal(holding_data['day_change_percentage']) == Decimal('16.15')
+        assert Decimal(holding_data['gain_loss']) == Decimal('9.00')
+
+    def test_holdings_list_supports_explicit_usd_display_currency(self, set_quote_and_position_now):
+        user = UserFactory.create()
+        portfolio = user.portfolios.first()
+        stock = StockFactory.create(
+            symbol='QQQ',
+            current_price=Decimal('10.00'),
+            previous_close=Decimal('8.00'),
+            previous_close_date=date(2026, 4, 16),
+            currency='USD',
+            is_local=False,
+        )
+        HoldingFactory.create(
+            portfolio=portfolio,
+            stock=stock,
+            quantity=2,
+            average_purchase_price=Decimal('20.00'),
+        )
+        market_date = date(2026, 4, 17)
+        set_quote_and_position_now(market_date)
+
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='mid',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date - timedelta(days=1),
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.40'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        self.client.force_authenticate(user=user)
+        url = reverse('portfolio-holdings', kwargs={'portfolio_id': portfolio.id})
+        response = self.client.get(url, {'display_currency': 'USD'})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['display_currency'] == 'USD'
+        assert response.data['display_currency_mode'] == 'USD'
+        assert response.data['summary']['summary_currency'] == 'USD'
+        holding_data = response.data['results'][0]
+        assert holding_data['stock']['display_currency'] == 'USD'
+        assert Decimal(holding_data['stock']['display_price']) == Decimal('10.00')
+        assert Decimal(holding_data['stock']['price_change']) == Decimal('2.00')
+        assert Decimal(holding_data['stock']['price_change_percent']) == Decimal('25.00')
+        assert Decimal(holding_data['current_value']) == Decimal('20.00')
+        assert Decimal(holding_data['cost_basis']) == Decimal('11.43')
+
+    def test_holdings_list_native_mode_keeps_row_native_and_summary_reporting_currency(self, set_quote_and_position_now):
+        user = UserFactory.create()
+        portfolio = user.portfolios.first()
+        portfolio.reporting_currency = 'PEN'
+        portfolio.save(update_fields=['reporting_currency'])
+        stock = StockFactory.create(
+            symbol='SHOP',
+            current_price=Decimal('10.00'),
+            previous_close=Decimal('8.00'),
+            previous_close_date=date(2026, 4, 16),
+            currency='USD',
+            is_local=False,
+        )
+        HoldingFactory.create(
+            portfolio=portfolio,
+            stock=stock,
+            quantity=2,
+            average_purchase_price=Decimal('20.00'),
+        )
+        market_date = date(2026, 4, 17)
+        set_quote_and_position_now(market_date)
+
+        FXRate.objects.create(
+            date=market_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='mid',
+            session='cierre',
+        )
+        FXRate.objects.create(
+            date=market_date - timedelta(days=1),
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.40'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        self.client.force_authenticate(user=user)
+        url = reverse('portfolio-holdings', kwargs={'portfolio_id': portfolio.id})
+        response = self.client.get(url, {'display_currency': 'NATIVE'})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['display_currency_mode'] == 'NATIVE'
+        assert response.data['display_currency'] == 'PEN'
+        assert response.data['summary']['summary_currency'] == 'PEN'
+        holding_data = response.data['results'][0]
+        assert holding_data['stock']['display_currency'] == 'USD'
+        assert Decimal(holding_data['current_value']) == Decimal('20.00')
 
     def test_empty_holdings(self):
         user = UserFactory.create()

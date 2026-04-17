@@ -44,6 +44,7 @@ const PortfolioDetail = () => {
   const [loading, setLoading] = useState(true);
   const [portfolio, setPortfolio] = useState(null);
   const [holdings, setHoldings] = useState([]);
+  const [holdingsSummary, setHoldingsSummary] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const lastDataLoadIdRef = React.useRef(null);
   const [editingMeta, setEditingMeta] = useState(false);
@@ -94,8 +95,9 @@ const PortfolioDetail = () => {
         if (cancelled) return;
         lastDataLoadIdRef.current = id;
         setPortfolio(p);
-        const holdingsList = Array.isArray(h?.results) ? h.results : h;
-        setHoldings(holdingsList || []);
+        const holdingsList = Array.isArray(h?.results) ? h.results : Array.isArray(h) ? h : [];
+        setHoldings(holdingsList);
+        setHoldingsSummary(h?.summary || null);
         const txList = Array.isArray(tx?.results) ? tx.results : tx;
         setTransactions(txList || []);
       } catch (e) {
@@ -118,8 +120,9 @@ const PortfolioDetail = () => {
         getTransactions({ portfolio: id }).catch(() => ({ results: [] })),
       ]);
       setPortfolio(p);
-      const holdingsList = Array.isArray(h?.results) ? h.results : h;
-      setHoldings(holdingsList || []);
+      const holdingsList = Array.isArray(h?.results) ? h.results : Array.isArray(h) ? h : [];
+      setHoldings(holdingsList);
+      setHoldingsSummary(h?.summary || null);
       const txList = Array.isArray(tx?.results) ? tx.results : tx;
       setTransactions(txList || []);
     } catch (_) {}
@@ -761,7 +764,7 @@ const PortfolioDetail = () => {
         <ErrorBoundary>
           <React.Suspense fallback={<div className="muted">Loading…</div>}>
             {activeTab === 'balances' && <BalancesTab portfolio={portfolio} transactions={transactions} />}
-            {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} transactions={transactions} />}
+            {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} summary={holdingsSummary} />}
             {activeTab === 'realized' && isAdmin && <RealizedTab portfolio={portfolio} />}
             {activeTab === 'performance' && isAdmin && <PerformanceTab />}
             {activeTab === 'history' && <HistoryTab transactions={transactions} />}
