@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { formatPercent } from '../utils/format';
 import apiClient from '../services/axios';
 
@@ -9,6 +10,7 @@ const fmtAmt = (v, currency) => (currency === 'USD' ? fmtUSD(v) : fmtPEN(v));
 const PositionsTab = ({ portfolio, holdings, summary, displayCurrency, onDisplayCurrencyChange }) => {
   const [fxRates, setFxRates] = useState(null);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [totalTooltip, setTotalTooltip] = useState(null);
   const [switching, setSwitching] = useState(false);
 
   const fxFetchRef = useRef(false);
@@ -111,6 +113,17 @@ const PositionsTab = ({ portfolio, holdings, summary, displayCurrency, onDisplay
       setSwitching(false);
     }
   };
+
+  const showTotalTooltip = (event, text) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTotalTooltip({
+      text,
+      top: rect.bottom + 8,
+      left: rect.left,
+    });
+  };
+
+  const hideTotalTooltip = () => setTotalTooltip(null);
 
   return (
     <div className="card">
@@ -234,13 +247,29 @@ const PositionsTab = ({ portfolio, holdings, summary, displayCurrency, onDisplay
               {isNative ? (
                 <>
                   <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
-                    <td className="sticky-col" style={{ fontWeight: 600 }}>Total de la cuenta (convertido a S/)</td>
+                    <td className="sticky-col" style={{ fontWeight: 600 }}>
+                      <span
+                        onMouseEnter={(event) => showTotalTooltip(event, 'Total de la cuenta (convertido a S/)')}
+                        onMouseLeave={hideTotalTooltip}
+                        style={{ textDecoration: 'underline dotted', cursor: 'help', textDecorationColor: '#666' }}
+                      >
+                        Total de la cuenta (convertido a S/)
+                      </span>
+                    </td>
                     <td></td><td></td><td></td><td></td><td></td>
                     <td style={{ fontWeight: 600 }}>{fmtPEN(totalPEN)}</td>
                     <td></td><td></td><td></td><td></td><td></td><td></td>
                   </tr>
                   <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
-                    <td className="sticky-col" style={{ fontWeight: 600 }}>Total de la cuenta (convertido a $)</td>
+                    <td className="sticky-col" style={{ fontWeight: 600 }}>
+                      <span
+                        onMouseEnter={(event) => showTotalTooltip(event, 'Total de la cuenta (convertido a $)')}
+                        onMouseLeave={hideTotalTooltip}
+                        style={{ textDecoration: 'underline dotted', cursor: 'help', textDecorationColor: '#666' }}
+                      >
+                        Total de la cuenta (convertido a $)
+                      </span>
+                    </td>
                     <td></td><td></td><td></td><td></td><td></td>
                     <td style={{ fontWeight: 600 }}>{fmtUSD(totalUSD)}</td>
                     <td></td><td></td><td></td><td></td><td></td><td></td>
@@ -262,6 +291,36 @@ const PositionsTab = ({ portfolio, holdings, summary, displayCurrency, onDisplay
             </tbody>
           </table>
         </div>
+      )}
+      {totalTooltip && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: totalTooltip.top,
+          left: totalTooltip.left,
+          padding: '10px 14px',
+          backgroundColor: '#1a1a1a',
+          border: '1px solid #333',
+          borderRadius: '6px',
+          whiteSpace: 'nowrap',
+          zIndex: 2000,
+          fontSize: '11px',
+          fontStyle: 'normal',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+          pointerEvents: 'none',
+        }}>
+          {totalTooltip.text}
+          <div style={{
+            position: 'absolute',
+            top: '-6px',
+            left: '20px',
+            width: 0,
+            height: 0,
+            borderLeft: '6px solid transparent',
+            borderRight: '6px solid transparent',
+            borderBottom: '6px solid #1a1a1a',
+          }} />
+        </div>,
+        document.body
       )}
     </div>
   );
