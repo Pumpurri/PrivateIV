@@ -201,17 +201,26 @@ def resolve_latest_auto(mode: str = 'auto', direction: str = 'compra') -> Tuple[
 
     chain = _series_chain(intraday, direction)
     last_err = None
+    best_stale = None
     prefix = _today_prefix()
-    for code in chain:
+    for idx, code in enumerate(chain):
         try:
             d, v = get_latest(code)
-            if expect_today and isinstance(d, str) and d and not d.startswith(prefix):
+            norm_date = _norm_period_iso(str(d)) if d is not None else ""
+            if expect_today and norm_date and not norm_date.startswith(prefix):
+                # Provider lag should not fail ingestion outright; keep the freshest
+                # successful observation as a fallback if nothing fresh is available.
+                candidate_key = (norm_date, -idx)
+                if best_stale is None or candidate_key > best_stale[0]:
+                    best_stale = (candidate_key, code, d, v)
                 continue
             return code, d, v
         except Exception as e:
             last_err = e
             continue
+    if best_stale:
+        _, code, d, v = best_stale
+        return code, d, v
     if last_err:
         raise last_err
     raise RuntimeError("No series produced a value")
-

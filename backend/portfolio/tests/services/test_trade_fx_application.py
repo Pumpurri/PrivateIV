@@ -1,3 +1,5 @@
+from datetime import date, datetime, timezone as dt_timezone
+
 import pytest
 from decimal import Decimal
 from django.core.exceptions import ValidationError
@@ -10,7 +12,7 @@ from stocks.models import Stock
 
 
 @pytest.mark.django_db
-def test_buy_uses_venta_rate_for_cash():
+def test_buy_uses_venta_rate_for_cash(set_fx_market_now):
     from users.tests.factories import UserFactory
     u = UserFactory()
     p = u.portfolios.get(is_default=True)
@@ -20,6 +22,7 @@ def test_buy_uses_venta_rate_for_cash():
 
     # Provide both intraday and cierre venta with same value for determinism
     today = timezone.now().date()
+    set_fx_market_now(today)
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.50'), rate_type='venta', session='intraday')
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.50'), rate_type='venta', session='cierre')
 
@@ -33,13 +36,36 @@ def test_buy_uses_venta_rate_for_cash():
 
 
 @pytest.mark.django_db
-def test_sell_uses_venta_rate_for_cash():
+def test_buy_uses_intraday_rate_when_utc_time_maps_to_lima_intraday(monkeypatch):
+    from users.tests.factories import UserFactory
+    import portfolio.services.fx_service as fx_service
+
+    u = UserFactory()
+    p = u.portfolios.get(is_default=True)
+    s = Stock.objects.create(symbol='BUYTZ', name='Buy FX TZ', currency='USD', current_price=Decimal('10.00'))
+
+    today = date(2025, 9, 24)
+    FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.50'), rate_type='venta', session='intraday')
+    FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.80'), rate_type='venta', session='cierre')
+
+    monkeypatch.setattr(fx_service.timezone, 'now', lambda: datetime(2025, 9, 24, 16, 10, tzinfo=dt_timezone.utc))
+
+    TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.DEPOSIT, amount=Decimal('1000.00'))
+    cash_before = p.cash_balance
+    TransactionFactory(portfolio=p, transaction_type=Transaction.TransactionType.BUY, stock=s, quantity=1)
+    p.refresh_from_db()
+    assert p.cash_balance == (cash_before - Decimal('35.00'))
+
+
+@pytest.mark.django_db
+def test_sell_uses_venta_rate_for_cash(set_fx_market_now):
     from users.tests.factories import UserFactory
     u = UserFactory()
     p = u.portfolios.get(is_default=True)
 
     s = Stock.objects.create(symbol='SELLX', name='Sell FX', currency='USD', current_price=Decimal('10.00'))
     today = timezone.now().date()
+    set_fx_market_now(today)
     # Provide both compra and venta (we will assert SELL uses compra)
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.55'), rate_type='compra', session='cierre')
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.60'), rate_type='venta', session='cierre')

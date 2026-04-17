@@ -7,7 +7,7 @@ from stocks.models import Stock
 from portfolio.models import Portfolio, Holding, Transaction
 from stocks.tests.factories import StockFactory
 from django.utils import timezone
-from datetime import timezone as datetime_timezone
+from datetime import datetime, time as datetime_time, timezone as datetime_timezone
 import logging
     
 @pytest.fixture
@@ -29,6 +29,27 @@ def portfolio(user_factory):
 def user_factory():
     from users.tests.factories import UserFactory
     return UserFactory
+
+
+@pytest.fixture
+def set_fx_market_now(monkeypatch):
+    """Freeze FX market time on the same calendar day as seeded test data."""
+    import portfolio.services.fx_service as fx_service
+
+    def _set(current_date, hour=19, minute=0):
+        # 19:00 UTC == 14:00 America/Lima, which is the same local date and
+        # safely in the cierre session for deterministic cross-currency tests.
+        monkeypatch.setattr(
+            fx_service.timezone,
+            'now',
+            lambda: datetime.combine(
+                current_date,
+                datetime_time(hour, minute),
+                tzinfo=datetime_timezone.utc,
+            ),
+        )
+
+    return _set
 
 @pytest.fixture
 def holding(portfolio, stock):

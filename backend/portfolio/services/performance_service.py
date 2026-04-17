@@ -1,11 +1,33 @@
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import models
 from django.db.models import Sum
+from django.utils import timezone
 from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
 from portfolio.models.transaction import Transaction
 from .historical_valuation import HistoricalValuationService
 
 class PerformanceCalculator:
+    @staticmethod
+    def calculate_all_time_weighted_return(portfolio, end_date=None):
+        """Calculate the portfolio's annualized TWR from its first transaction to now."""
+        end_date = end_date or timezone.now()
+        first_transaction_at = (
+            Transaction.all_objects
+            .filter(portfolio=portfolio)
+            .order_by('timestamp')
+            .values_list('timestamp', flat=True)
+            .first()
+        )
+
+        if not first_transaction_at or first_transaction_at >= end_date:
+            return Decimal('0.0000')
+
+        return PerformanceCalculator.calculate_time_weighted_return(
+            portfolio=portfolio,
+            start_date=first_transaction_at,
+            end_date=end_date,
+        )
+
     @staticmethod
     def calculate_time_weighted_return(portfolio, start_date, end_date):
         """

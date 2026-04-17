@@ -183,7 +183,12 @@ class PortfolioOverviewView(APIView):
         recent_tx_data = TransactionSerializer(recent_tx, many=True).data
 
         # Snapshots (last 30 days by default)
-        days = int(request.query_params.get('days', 30))
+        try:
+            days = int(request.query_params.get('days', 30))
+            if days < 1 or days > 3650:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({'error': 'days must be an integer between 1 and 3650'}, status=400)
         since_date = today - timedelta(days=days)
         snaps = (
             DailyPortfolioSnapshot.objects

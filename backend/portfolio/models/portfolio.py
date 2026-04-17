@@ -3,7 +3,6 @@ from django.db.models import Sum, F, Q
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-from django.utils.timezone import localtime
 from decimal import Decimal, ROUND_HALF_UP
 from portfolio.services.historical_valuation import HistoricalValuationService
 
@@ -80,7 +79,10 @@ class Portfolio(models.Model):
     @property
     def current_investment_value(self):
         """Real-time value using CURRENT prices"""
-        return self._calculate_investment_value(timezone.now().date())
+        from portfolio.services.fx_service import get_current_fx_context
+
+        current_fx_date, _ = get_current_fx_context()
+        return self._calculate_investment_value(current_fx_date)
     
     @property  
     def investment_value(self):
@@ -89,24 +91,23 @@ class Portfolio(models.Model):
     
     def _calculate_investment_value(self, as_of_date):
         """Internal method for date-aware valuation, converted to base currency."""
-        from portfolio.services.fx_service import get_fx_rate
-        from datetime import time
-        if as_of_date == timezone.now().date():
+        from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
+
+        current_fx_date, current_fx_session = get_current_fx_context()
+        if as_of_date == current_fx_date:
             # Real-time calculation (convert each holding to base using today's/last-known FX)
             total = Decimal('0.00')
             for h in self.holdings.select_related('stock').filter(is_active=True, stock__is_active=True):
                 price = h.stock.current_price or Decimal('0.00')
                 native_value = Decimal(h.quantity) * price
-                # Choose intraday during 11:05–13:29 local time, otherwise cierre
-                try:
-                    now_t = localtime().time()
-                except Exception:
-                    now_t = timezone.now().time()
-                # Normalize to naive time for safe comparison
-                cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-                session = 'intraday' if (cmp_t >= time(11,5) and cmp_t < time(13,30)) else 'cierre'
-                # Use mid for live marking by estimate
-                rate = get_fx_rate(as_of_date, self.base_currency, getattr(h.stock, 'currency', 'USD'), rate_type='mid', session=session)
+                # Use the FX market clock, not the app timezone, for live session selection.
+                rate = get_fx_rate(
+                    as_of_date,
+                    self.base_currency,
+                    getattr(h.stock, 'currency', 'USD'),
+                    rate_type='mid',
+                    session=current_fx_session,
+                )
                 total += (native_value * rate)
             return total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         else:

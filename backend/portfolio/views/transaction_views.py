@@ -128,6 +128,7 @@ class TransactionListView(generics.ListAPIView):
         by_type = {
             choice.value: {
                 'count': 0,
+                'amount': '0.00',
                 'amount_native': '0.00',
                 'amount_base': '0.00',
                 'quantity': 0,
@@ -143,6 +144,7 @@ class TransactionListView(generics.ListAPIView):
         ):
             by_type[row['transaction_type']] = {
                 'count': row['count'],
+                'amount': cls._format_decimal(row['amount_native']),
                 'amount_native': cls._format_decimal(row['amount_native']),
                 'amount_base': cls._format_decimal(row['amount_base']),
                 'quantity': row['quantity'] or 0,
@@ -153,6 +155,7 @@ class TransactionListView(generics.ListAPIView):
 
         return {
             'count': aggregate['total_count'],
+            'amount': cls._format_decimal(aggregate['total_amount']),
             'amount_native': cls._format_decimal(aggregate['total_amount']),
             'amount_base': cls._format_decimal(aggregate['total_amount_base']),
             'quantity': aggregate['total_quantity'] or 0,

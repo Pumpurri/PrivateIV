@@ -219,7 +219,7 @@ class TestTransactionPNLHandling:
         expected = (Decimal('90.00') - Decimal('75.00')) * 10
         assert pnl.pnl == expected.quantize(Decimal('0.01'))
 
-    def test_realized_pnl_for_cross_currency_sell_uses_portfolio_base_currency(self, portfolio, stock):
+    def test_realized_pnl_for_cross_currency_sell_uses_portfolio_base_currency(self, portfolio, stock, set_fx_market_now):
         portfolio.base_currency = 'PEN'
         portfolio.save(update_fields=['base_currency'])
         stock.currency = 'USD'
@@ -227,6 +227,7 @@ class TestTransactionPNLHandling:
         stock.save(update_fields=['currency', 'current_price'])
 
         today = timezone.now().date()
+        set_fx_market_now(today)
         for session in ('intraday', 'cierre'):
             FXRate.objects.create(
                 date=today,

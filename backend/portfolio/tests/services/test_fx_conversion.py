@@ -11,7 +11,7 @@ from portfolio.tests.factories import TransactionFactory
 
 
 @pytest.mark.django_db
-def test_mixed_currency_snapshot_uses_base_currency(user_factory):
+def test_mixed_currency_snapshot_uses_base_currency(user_factory, set_fx_market_now):
     user = user_factory.create()
     p: Portfolio = user.portfolios.get(is_default=True)
     # Ensure base currency is PEN for this test
@@ -25,6 +25,7 @@ def test_mixed_currency_snapshot_uses_base_currency(user_factory):
 
     # FX: 1 USD = 3.50 PEN today
     today = timezone.now().date()
+    set_fx_market_now(today)
     FXRate.objects.create(date=today, base_currency='PEN', quote_currency='USD', rate=Decimal('3.50'), rate_type='venta')
 
     # Fund portfolio and buy 1 share each via TransactionService
@@ -43,7 +44,7 @@ def test_mixed_currency_snapshot_uses_base_currency(user_factory):
 
 
 @pytest.mark.django_db
-def test_fx_fallback_uses_prior_rate(user_factory):
+def test_fx_fallback_uses_prior_rate(user_factory, set_fx_market_now):
     user = user_factory.create()
     p: Portfolio = user.portfolios.get(is_default=True)
     p.base_currency = 'PEN'
@@ -52,6 +53,7 @@ def test_fx_fallback_uses_prior_rate(user_factory):
 
     usd = Stock.objects.create(symbol='USD2', name='USD Asset 2', currency='USD', current_price=Decimal('20.00'))
     today = timezone.now().date()
+    set_fx_market_now(today)
     prior = today - timezone.timedelta(days=1)
     # Only prior rate exists
     FXRate.objects.create(date=prior, base_currency='PEN', quote_currency='USD', rate=Decimal('4.00'), rate_type='venta')

@@ -5,10 +5,7 @@ from django.core.exceptions import ValidationError
 import logging
 from portfolio.models import Transaction, Holding, RealizedPNL, PortfolioPerformance
 from portfolio.services.tracing import span
-from portfolio.services.fx_service import get_fx_rate
-from django.utils import timezone
-from django.utils.timezone import localtime
-from datetime import time
+from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -104,19 +101,13 @@ class TransactionService:
         current_price = cls._validate_price(stock.current_price)
         total_cost_native = (Decimal(quantity) * current_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-        # Determine FX session (intraday 11:05–13:29 America/Lima, else cierre)
-        try:
-            now_t = localtime().time()
-        except Exception:
-            now_t = timezone.now().time()
-        cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-        session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
+        fx_date, session = get_current_fx_context()
 
         # Apply FX only when stock currency differs from portfolio base
         if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
             # BUY (PEN -> USD): use 'venta' (bank sells USD)
             fx = get_fx_rate(
-                timezone.now().date(),
+                fx_date,
                 portfolio.base_currency,
                 stock.currency,
                 rate_type='venta',
@@ -160,17 +151,11 @@ class TransactionService:
             raise ValidationError("Cannot sell stock not held in portfolio")
         purchase_price_base = holding.average_purchase_price
         
-        # Determine FX session
-        try:
-            now_t = localtime().time()
-        except Exception:
-            now_t = timezone.now().time()
-        cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-        session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
+        fx_date, session = get_current_fx_context()
         if getattr(stock, 'currency', None) and stock.currency != portfolio.base_currency:
             # SELL (USD -> PEN): use 'compra' (bank buys USD)
             fx = get_fx_rate(
-                timezone.now().date(),
+                fx_date,
                 portfolio.base_currency,
                 stock.currency,
                 rate_type='compra',

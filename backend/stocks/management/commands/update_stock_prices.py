@@ -1,7 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.apps import apps
 from stocks.services import fetch_data_for_companies
-from math import ceil
 
 class Command(BaseCommand):
     help = 'Updates stock prices'
@@ -14,33 +13,27 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("No stocks found in the database."))
             return
 
-        # Get all symbols and batch them
         symbols = [stock.symbol for stock in stocks]
-        batch_size = 20
-        num_batches = ceil(len(symbols) / batch_size)
-        
-        for i in range(num_batches):
-            batch_symbols = symbols[i*batch_size:(i+1)*batch_size]
-            symbols_str = ','.join(batch_symbols)
-            
-            self.stdout.write(f"Fetching prices for batch: {symbols_str}")
+
+        for symbol in symbols:
+            self.stdout.write(f"Fetching price for {symbol}")
             try:
-                data = fetch_data_for_companies(symbols_str)
+                data = fetch_data_for_companies(symbol)
             except RuntimeError as exc:
-                self.stdout.write(self.style.ERROR(f"Failed to fetch prices for batch {symbols_str}: {exc}"))
+                self.stdout.write(self.style.ERROR(f"Failed to fetch price for {symbol}: {exc}"))
                 continue
-            
+
             if data:
                 for stock_info in data:
-                    symbol = stock_info.get('symbol')
+                    fetched_symbol = stock_info.get('symbol')
                     current_price = stock_info.get('price', 0.0)
-                    
+
                     try:
-                        stock = Stock.objects.get(symbol=symbol)
+                        stock = Stock.objects.get(symbol=fetched_symbol)
                         stock.current_price = current_price
                         stock.save()
-                        self.stdout.write(self.style.SUCCESS(f"Updated {symbol} to {current_price}"))
+                        self.stdout.write(self.style.SUCCESS(f"Updated {fetched_symbol} to {current_price}"))
                     except Stock.DoesNotExist:
-                        self.stdout.write(self.style.WARNING(f"Stock {symbol} not found in database"))
+                        self.stdout.write(self.style.WARNING(f"Stock {fetched_symbol} not found in database"))
             else:
-                self.stdout.write(self.style.ERROR(f"Failed to fetch prices for batch: {symbols_str}"))
+                self.stdout.write(self.style.ERROR(f"Failed to fetch price for {symbol}"))

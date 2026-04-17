@@ -2,11 +2,13 @@ import pytest
 from datetime import date, timedelta
 from django.contrib.auth import authenticate
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core import mail
 from django.urls import reverse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework.test import APIClient
+from rest_framework.throttling import ScopedRateThrottle
 from users.models import CustomUser
 from users.serializers import UserCreateSerializer, CustomUserSerializer
 from rest_framework.exceptions import ValidationError
@@ -324,6 +326,85 @@ class TestPasswordReset:
         assert response.status_code == 400
         factory_user.refresh_from_db()
         assert factory_user.check_password('testpass123!')
+
+
+@pytest.mark.django_db
+class TestAuthThrottling:
+    @pytest.fixture(autouse=True)
+    def clear_throttle_cache(self):
+        cache.clear()
+        yield
+        cache.clear()
+
+    @pytest.fixture(autouse=True)
+    def tighten_auth_throttle_rates(self):
+        original_rates = ScopedRateThrottle.THROTTLE_RATES.copy()
+        ScopedRateThrottle.THROTTLE_RATES = {
+            **ScopedRateThrottle.THROTTLE_RATES,
+            'auth_login': '1/min',
+            'auth_register': '1/min',
+            'auth_password_reset_request': '1/min',
+            'auth_password_reset_confirm': '1/min',
+        }
+        yield
+        ScopedRateThrottle.THROTTLE_RATES = original_rates
+
+    def _client_for_ip(self, ip_address):
+        client = APIClient()
+        client.defaults['REMOTE_ADDR'] = ip_address
+        return client
+
+    def test_login_is_throttled_for_repeated_anonymous_attempts(self, factory_user):
+        client1 = self._client_for_ip('203.0.113.10')
+        client2 = self._client_for_ip('203.0.113.10')
+        payload = {
+            'email': factory_user.email,
+            'password': 'wrongpassword',
+        }
+
+        first = client1.post(reverse('login'), payload)
+        second = client2.post(reverse('login'), payload)
+
+        assert first.status_code == 401
+        assert second.status_code == 429
+
+    def test_register_is_throttled_for_repeated_anonymous_attempts(self, user_data):
+        client1 = self._client_for_ip('203.0.113.11')
+        client2 = self._client_for_ip('203.0.113.11')
+
+        first = client1.post(reverse('register'), user_data)
+        second = client2.post(reverse('register'), user_data)
+
+        assert first.status_code == 201
+        assert second.status_code == 429
+
+    def test_password_reset_request_is_throttled(self, factory_user):
+        client1 = self._client_for_ip('203.0.113.12')
+        client2 = self._client_for_ip('203.0.113.12')
+        payload = {'email': factory_user.email}
+
+        first = client1.post(reverse('password-reset'), payload)
+        second = client2.post(reverse('password-reset'), payload)
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+
+    def test_password_reset_confirm_is_throttled(self, factory_user):
+        uid = urlsafe_base64_encode(force_bytes(factory_user.pk))
+        token = default_token_generator.make_token(factory_user)
+        payload = {
+            'uid': uid,
+            'token': token,
+            'new_password': 'NewValidPass123!',
+        }
+        client1 = self._client_for_ip('203.0.113.13')
+        client2 = self._client_for_ip('203.0.113.13')
+
+        first = client1.post(reverse('password-reset-confirm'), payload)
+        second = client2.post(reverse('password-reset-confirm'), payload)
+
+        assert first.status_code == 200
+        assert second.status_code == 429
 
 @pytest.mark.django_db
 def test_csrf_endpoint(client):

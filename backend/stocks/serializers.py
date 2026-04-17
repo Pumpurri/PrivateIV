@@ -14,10 +14,7 @@ class StockSerializer(serializers.ModelSerializer):
 
     def get_display_price(self, obj):
         """Return price in portfolio base currency using mid FX rate"""
-        from portfolio.services.fx_service import get_fx_rate
-        from django.utils import timezone
-        from django.utils.timezone import localtime
-        from datetime import time
+        from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 
         price = obj.current_price
         if price is None:
@@ -44,17 +41,11 @@ class StockSerializer(serializers.ModelSerializer):
         if not portfolio or not obj.currency or obj.currency == portfolio.base_currency:
             return price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-        # Determine session for FX rate
-        try:
-            now_t = localtime().time()
-        except Exception:
-            now_t = timezone.now().time()
-        cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-        session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
+        fx_date, session = get_current_fx_context()
 
         # Use mid rate (average of compra/venta) for display
         fx = get_fx_rate(
-            timezone.now().date(),
+            fx_date,
             portfolio.base_currency,
             obj.currency,
             rate_type='mid',
@@ -65,10 +56,7 @@ class StockSerializer(serializers.ModelSerializer):
 
     def get_price_change(self, obj):
         """Return price change in portfolio base currency using mid FX rate"""
-        from portfolio.services.fx_service import get_fx_rate
-        from django.utils import timezone
-        from django.utils.timezone import localtime
-        from datetime import time
+        from portfolio.services.fx_service import get_current_fx_context, get_fx_rate
 
         change = obj.price_change
         if change is None:
@@ -94,17 +82,11 @@ class StockSerializer(serializers.ModelSerializer):
         if not portfolio or not obj.currency or obj.currency == portfolio.base_currency:
             return change.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-        # Determine session for FX rate
-        try:
-            now_t = localtime().time()
-        except Exception:
-            now_t = timezone.now().time()
-        cmp_t = now_t.replace(tzinfo=None) if getattr(now_t, 'tzinfo', None) else now_t
-        session = 'intraday' if (cmp_t >= time(11, 5) and cmp_t < time(13, 30)) else 'cierre'
+        fx_date, session = get_current_fx_context()
 
         # Use mid rate (average of compra/venta) for display
         fx = get_fx_rate(
-            timezone.now().date(),
+            fx_date,
             portfolio.base_currency,
             obj.currency,
             rate_type='mid',

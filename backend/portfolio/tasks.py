@@ -23,9 +23,8 @@ def update_all_time_weighted_returns():
 
     for portfolio in portfolios:
         try:
-            result = PerformanceCalculator.calculate_time_weighted_return(
+            result = PerformanceCalculator.calculate_all_time_weighted_return(
                 portfolio=portfolio,
-                start_date=now.replace(hour=0, minute=0, second=0, microsecond=0),
                 end_date=now
             )
             portfolio.performance.time_weighted_return = result
@@ -42,8 +41,7 @@ def fx_ingest_latest_auto(mode='auto'):
     Returns a dict with compra/venta used and the saved row details.
     """
     try:
-        result = upsert_latest_from_bcrp(mode=mode)
-        return result
-    except Exception as e:
-        # Celery records the exception; return a compact message as well
-        return { 'error': str(e) }
+        return upsert_latest_from_bcrp(mode=mode)
+    except Exception:
+        logger.exception("FX ingest task failed for mode=%s", mode)
+        raise

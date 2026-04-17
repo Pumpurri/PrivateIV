@@ -95,8 +95,35 @@ COMPANIES = [
     {'symbol': 'SCHW', 'name': 'Charles Schwab Corp.'},
 ]
 
-# Backward-compatible alias used by older tests/imports.
+FMP_FREE_PLAN_SYMBOLS = [
+    'AAPL', 'TSLA', 'AMZN', 'MSFT', 'NVDA', 'GOOGL', 'META', 'NFLX', 'JPM', 'V',
+    'BAC', 'PYPL', 'DIS', 'T', 'PFE', 'COST', 'INTC', 'KO', 'TGT', 'NKE',
+    'SPY', 'BA', 'BABA', 'XOM', 'WMT', 'GE', 'CSCO', 'VZ', 'JNJ', 'CVX',
+    'PLTR', 'SQ', 'SHOP', 'SBUX', 'SOFI', 'HOOD', 'RBLX', 'SNAP', 'AMD', 'UBER',
+    'FDX', 'ABBV', 'ETSY', 'MRNA', 'LMT', 'GM', 'F', 'LCID', 'CCL', 'DAL',
+    'UAL', 'AAL', 'TSM', 'SONY', 'ET', 'MRO', 'COIN', 'RIVN', 'RIOT', 'CPRX',
+    'VWO', 'SPYG', 'NOK', 'ROKU', 'VIAC', 'ATVI', 'BIDU', 'DOCU', 'ZM', 'PINS',
+    'TLRY', 'WBA', 'MGM', 'NIO', 'C', 'GS', 'WFC', 'ADBE', 'PEP', 'UNH',
+    'CARR', 'HCA', 'TWTR', 'BILI', 'SIRI', 'FUBO', 'RKT',
+]
+
+# Keep the full tracked universe above so enabling the paid tier is a one-line change.
+USE_FMP_FREE_PLAN_SYMBOLS_ONLY = True
+
+_COMPANY_BY_SYMBOL = {company['symbol']: company for company in COMPANIES}
+
+ACTIVE_COMPANIES = (
+    [
+        _COMPANY_BY_SYMBOL.get(symbol, {'symbol': symbol, 'name': symbol})
+        for symbol in FMP_FREE_PLAN_SYMBOLS
+    ]
+    if USE_FMP_FREE_PLAN_SYMBOLS_ONLY
+    else COMPANIES
+)
+
+# Backward-compatible aliases used by older tests/imports.
 companies = COMPANIES
+active_companies = ACTIVE_COMPANIES
 
 
 def batch_companies(companies, batch_size=20):
@@ -184,23 +211,21 @@ def fetch_stock_prices():
     if update_local_stock_prices():
         successful_upstream_calls += 1
 
-    batches = batch_companies(COMPANIES, batch_size=20)
-
-    for batch in batches:
-        symbols = ','.join([company['symbol'] for company in batch])
+    for company in ACTIVE_COMPANIES:
+        symbol = company['symbol']
         try:
-            data = fetch_data_for_companies(symbols)
+            data = fetch_data_for_companies(symbol)
         except RuntimeError:
             logger.exception(
-                "Failed to fetch US stock data batch",
-                extra={"provider": "fmp", "symbols": symbols},
+                "Failed to fetch US stock data",
+                extra={"provider": "fmp", "symbols": symbol},
             )
             continue
 
         if data is None:
             logger.error(
-                "FMP stock data batch returned no response",
-                extra={"provider": "fmp", "symbols": symbols},
+                "FMP stock data returned no response",
+                extra={"provider": "fmp", "symbols": symbol},
             )
             continue
 
@@ -210,10 +235,10 @@ def fetch_stock_prices():
             update_us_stock_prices(data)
 
         logger.info(
-            "Processed US stock price batch",
+            "Processed US stock price",
             extra={
                 "provider": "fmp",
-                "symbols": symbols,
+                "symbols": symbol,
                 "records": len(data) if isinstance(data, list) else None,
             },
         )
@@ -275,23 +300,21 @@ def fetch_eod_prices():
         )
 
     # Fetch US stocks and save historical
-    batches = batch_companies(COMPANIES, batch_size=20)
-
-    for batch in batches:
-        symbols = ','.join([company['symbol'] for company in batch])
+    for company in ACTIVE_COMPANIES:
+        symbol = company['symbol']
         try:
-            data = fetch_data_for_companies(symbols)
+            data = fetch_data_for_companies(symbol)
         except RuntimeError:
             logger.exception(
-                "Failed to fetch US EOD stock data batch",
-                extra={"provider": "fmp", "symbols": symbols},
+                "Failed to fetch US EOD stock data",
+                extra={"provider": "fmp", "symbols": symbol},
             )
             continue
 
         if data is None:
             logger.error(
-                "FMP EOD stock data batch returned no response",
-                extra={"provider": "fmp", "symbols": symbols},
+                "FMP EOD stock data returned no response",
+                extra={"provider": "fmp", "symbols": symbol},
             )
             continue
 
@@ -324,10 +347,10 @@ def fetch_eod_prices():
                     )
 
         logger.info(
-            "Processed US EOD stock price batch",
+            "Processed US EOD stock price",
             extra={
                 "provider": "fmp",
-                "symbols": symbols,
+                "symbols": symbol,
                 "records": len(data) if isinstance(data, list) else None,
             },
         )

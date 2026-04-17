@@ -139,7 +139,7 @@ def fetch_bvl_market_data(
 
 def fetch_data_for_companies(symbols):
     """
-    Fetch stock data for multiple companies from the FMP API.
+    Fetch stock data for a single company from the FMP quote API.
     """
     api_key = (os.getenv('FMP_API') or '').strip()
     if not api_key:
@@ -154,14 +154,14 @@ def fetch_data_for_companies(symbols):
     except (TypeError, ValueError):
         timeout = 15.0
 
-    url = f'https://financialmodelingprep.com/api/v3/quote/{symbols}/'
+    url = 'https://financialmodelingprep.com/stable/quote'
     logger.info(
         "Fetching FMP quote data",
         extra={"provider": "fmp", "symbols": symbols, "timeout": timeout},
     )
 
     try:
-        response = requests.get(url, params={'apikey': api_key}, timeout=timeout)
+        response = requests.get(url, params={'symbol': symbols, 'apikey': api_key}, timeout=timeout)
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as exc:

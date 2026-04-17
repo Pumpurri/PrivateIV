@@ -1,9 +1,43 @@
+from datetime import time
 from decimal import Decimal
 import logging
+from zoneinfo import ZoneInfo
+
 from django.apps import apps
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+FX_INTRADAY_START = time(11, 5)
+FX_INTRADAY_END = time(13, 30)
+
+
+def get_fx_market_now(now=None):
+    """Return the current FX market datetime in the configured market timezone."""
+    market_tz_name = getattr(settings, 'FX_MARKET_TIME_ZONE', 'America/Lima')
+    try:
+        market_tz = ZoneInfo(market_tz_name)
+    except Exception:
+        logger.warning(
+            "Invalid FX_MARKET_TIME_ZONE=%s; falling back to Django default timezone",
+            market_tz_name,
+        )
+        market_tz = timezone.get_default_timezone()
+
+    now = now or timezone.now()
+    if timezone.is_naive(now):
+        now = timezone.make_aware(now, timezone.get_default_timezone())
+    return now.astimezone(market_tz)
+
+
+def get_current_fx_context(now=None):
+    """Return the market-local date and session for live FX selection."""
+    market_now = get_fx_market_now(now)
+    market_time = market_now.timetz().replace(tzinfo=None)
+    session = 'intraday' if FX_INTRADAY_START <= market_time < FX_INTRADAY_END else 'cierre'
+    return market_now.date(), session
 
 
 def _missing_fx_rate_error(snapshot_date, base_currency, quote_currency, rate_type, session):

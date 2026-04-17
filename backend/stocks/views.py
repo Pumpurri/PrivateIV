@@ -38,6 +38,6 @@ class StockRefreshStatusView(APIView):
     def get(self, request):
         status_obj = StockRefreshStatus.objects.order_by('-last_refreshed_at').first()
         if not status_obj:
-            status_obj = StockRefreshStatus.mark_refreshed()
+            return Response({'last_refreshed_at': None})
         serializer = StockRefreshStatusSerializer(status_obj)
         return Response(serializer.data)
