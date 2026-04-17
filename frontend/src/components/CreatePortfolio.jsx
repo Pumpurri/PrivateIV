@@ -6,7 +6,8 @@ function CreatePortfolio({ onSuccess, onCancel }) {
     const [form, setForm] = useState({
         name: '',
         description: '',
-        initial_deposit: ''
+        initial_deposit_pen: '',
+        initial_deposit_usd: ''
     });
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,11 +37,16 @@ function CreatePortfolio({ onSuccess, onCancel }) {
                 description: form.description.trim() || undefined
             };
 
-            const amt = parseFloat(form.initial_deposit);
-            if (!amt || amt <= 0) {
-                throw new Error('El depósito inicial es obligatorio y debe ser mayor que 0.');
+            const amtPEN = parseFloat(form.initial_deposit_pen) || 0;
+            const amtUSD = parseFloat(form.initial_deposit_usd) || 0;
+            if (amtPEN <= 0 && amtUSD <= 0) {
+                throw new Error('Debes ingresar un depósito inicial en soles o en dólares.');
             }
-            payload.initial_deposit = amt;
+            if (amtPEN < 0 || amtUSD < 0) {
+                throw new Error('Los depósitos no pueden ser negativos.');
+            }
+            payload.initial_deposit_pen = amtPEN;
+            payload.initial_deposit_usd = amtUSD;
 
             const response = await createPortfolio(payload);
 
@@ -55,8 +61,10 @@ function CreatePortfolio({ onSuccess, onCancel }) {
                 return;
             }
             
-            const errorMessage = err.response?.data?.initial_deposit?.[0] ||
-                                 err.response?.data?.detail || 
+            const errorMessage = err.response?.data?.initial_deposit_pen?.[0] ||
+                                 err.response?.data?.initial_deposit_usd?.[0] ||
+                                 err.response?.data?.initial_deposit?.[0] ||
+                                 err.response?.data?.detail ||
                                  err.response?.data?.error ||
                                  err.response?.data?.name?.[0] ||
                                  err.message ||
@@ -111,20 +119,37 @@ function CreatePortfolio({ onSuccess, onCancel }) {
                 </div>
 
                 <div className="grid" style={{ gap: 6 }}>
-                    <label className="muted" htmlFor="initial_deposit">Depósito inicial</label>
-                    <input
-                        id="initial_deposit"
-                        className="input no-spin"
-                        type="number"
-                        placeholder="0.00"
-                        value={form.initial_deposit}
-                        onChange={(e) => setForm({ ...form, initial_deposit: e.target.value })}
-                        min="0.01"
-                        step="0.01"
-                        required
-                    />
+                    <label className="muted">Depósito inicial</label>
+                    <div className="row" style={{ gap: 12 }}>
+                        <div className="grid" style={{ gap: 4, flex: 1 }}>
+                            <label className="muted" htmlFor="initial_deposit_pen" style={{ fontSize: 12 }}>Soles (S/.)</label>
+                            <input
+                                id="initial_deposit_pen"
+                                className="input no-spin"
+                                type="number"
+                                placeholder="0.00"
+                                value={form.initial_deposit_pen}
+                                onChange={(e) => setForm({ ...form, initial_deposit_pen: e.target.value })}
+                                min="0"
+                                step="0.01"
+                            />
+                        </div>
+                        <div className="grid" style={{ gap: 4, flex: 1 }}>
+                            <label className="muted" htmlFor="initial_deposit_usd" style={{ fontSize: 12 }}>Dólares ($)</label>
+                            <input
+                                id="initial_deposit_usd"
+                                className="input no-spin"
+                                type="number"
+                                placeholder="0.00"
+                                value={form.initial_deposit_usd}
+                                onChange={(e) => setForm({ ...form, initial_deposit_usd: e.target.value })}
+                                min="0"
+                                step="0.01"
+                            />
+                        </div>
+                    </div>
                     <p className="muted" style={{ fontSize: '12px', margin: 0 }}>
-                        Cantidad en efectivo para empezar a invertir (obligatorio)
+                        Ingresa al menos un monto en soles o en dólares (obligatorio).
                     </p>
                 </div>
 
@@ -147,7 +172,7 @@ function CreatePortfolio({ onSuccess, onCancel }) {
                     <button
                         className="btn primary"
                         type="submit"
-                        disabled={isSubmitting || !form.name.trim() || !(parseFloat(form.initial_deposit) > 0)}
+                        disabled={isSubmitting || !form.name.trim() || !((parseFloat(form.initial_deposit_pen) > 0) || (parseFloat(form.initial_deposit_usd) > 0))}
                         style={{ flex: 1 }}
                     >
                         {isSubmitting ? 'Creando...' : 'Crear Portafolio'}

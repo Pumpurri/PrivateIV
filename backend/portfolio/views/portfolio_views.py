@@ -32,33 +32,55 @@ class PortfolioListView(generics.ListCreateAPIView):
         ).select_related('performance').prefetch_related('holdings')
 
     def perform_create(self, serializer):
-        # Require initial_deposit on creation
-        raw_amount = self.request.data.get('initial_deposit')
-        if raw_amount in (None, ''):
-            raise ValidationError({'initial_deposit': 'Initial deposit is required.'})
-        try:
-            amount = Decimal(str(raw_amount))
-        except Exception:
-            raise ValidationError({'initial_deposit': 'Invalid amount format.'})
-        if amount <= Decimal('0'):
-            raise ValidationError({'initial_deposit': 'Initial deposit must be greater than 0.'})
+        def _parse_amount(field, raw):
+            if raw in (None, ''):
+                return Decimal('0')
+            try:
+                amt = Decimal(str(raw))
+            except Exception:
+                raise ValidationError({field: 'Invalid amount format.'})
+            if amt < Decimal('0'):
+                raise ValidationError({field: 'Amount cannot be negative.'})
+            return amt
+
+        pen_amount = _parse_amount('initial_deposit_pen', self.request.data.get('initial_deposit_pen'))
+        usd_amount = _parse_amount('initial_deposit_usd', self.request.data.get('initial_deposit_usd'))
+
+        deposits = []
+        if pen_amount > 0:
+            deposits.append((pen_amount, 'PEN'))
+        if usd_amount > 0:
+            deposits.append((usd_amount, 'USD'))
+
+        # Legacy single-deposit path (kept for backward compatibility with existing clients/tests).
+        if not deposits:
+            raw_legacy = self.request.data.get('initial_deposit')
+            if raw_legacy not in (None, ''):
+                legacy_amount = _parse_amount('initial_deposit', raw_legacy)
+                if legacy_amount <= Decimal('0'):
+                    raise ValidationError({'initial_deposit': 'Initial deposit must be greater than 0.'})
+                raw_currency = self.request.data.get('initial_deposit_currency')
+                try:
+                    legacy_currency = normalize_currency(raw_currency) if raw_currency else None
+                except ValueError as exc:
+                    raise ValidationError({'initial_deposit_currency': str(exc)}) from exc
+                deposits.append((legacy_amount, legacy_currency))
+
+        if not deposits:
+            raise ValidationError({'initial_deposit_pen': 'Provide an initial deposit in PEN or USD.'})
 
         # Create portfolio and initial funding as one unit.
         with transaction.atomic():
             portfolio = serializer.save(user=self.request.user, is_default=False)
-            raw_currency = self.request.data.get('initial_deposit_currency')
-            try:
-                deposit_currency = normalize_currency(raw_currency) if raw_currency else get_portfolio_reporting_currency(portfolio)
-            except ValueError as exc:
-                raise ValidationError({'initial_deposit_currency': str(exc)}) from exc
-            tx_data = {
-                'portfolio': portfolio,
-                'idempotency_key': uuid.uuid4(),
-                'transaction_type': Transaction.TransactionType.DEPOSIT,
-                'amount': amount,
-                'cash_currency': deposit_currency,
-            }
-            TransactionService.execute_transaction(tx_data)
+            for amount, currency in deposits:
+                deposit_currency = currency or get_portfolio_reporting_currency(portfolio)
+                TransactionService.execute_transaction({
+                    'portfolio': portfolio,
+                    'idempotency_key': uuid.uuid4(),
+                    'transaction_type': Transaction.TransactionType.DEPOSIT,
+                    'amount': amount,
+                    'cash_currency': deposit_currency,
+                })
 
 
 class PortfolioDetailView(generics.RetrieveUpdateDestroyAPIView):
