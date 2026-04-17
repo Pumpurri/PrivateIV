@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
-import { createTransaction, deletePortfolio, getPortfolio, getPortfolioHoldings, getTransactions, updatePortfolio } from '../services/api';
+import { createTransaction, deletePortfolio, getFXRates, getPortfolio, getPortfolioHoldings, getTransactions, updatePortfolio } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const BalancesTab = React.lazy(() => import('../tabs/BalancesTab'));
@@ -60,6 +60,10 @@ const PortfolioDetail = () => {
   const [walletAmount, setWalletAmount] = useState('');
   const [walletSubmitting, setWalletSubmitting] = useState(false);
   const [walletError, setWalletError] = useState('');
+  const [convertFrom, setConvertFrom] = useState('PEN');
+  const [walletCurrency, setWalletCurrency] = useState('PEN');
+  const [fxRates, setFxRates] = useState(null);
+  const fxFetchedRef = useRef(false);
   const [hoveredDisabledTab, setHoveredDisabledTab] = useState(null);
 
   // Sync tab state with URL param; default to balances
@@ -112,6 +116,13 @@ const PortfolioDetail = () => {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (walletAction !== 'convert' || fxFetchedRef.current) return;
+    let cancelled = false;
+    getFXRates().then(data => { if (!cancelled) { setFxRates(data); fxFetchedRef.current = true; } }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [walletAction]);
 
   const refreshAll = async (currencyOverride) => {
     const currency = currencyOverride !== undefined ? currencyOverride : displayCurrency;
@@ -186,7 +197,8 @@ const PortfolioDetail = () => {
     setWalletAmount('');
     setWalletError('');
     setWalletAction('deposit');
-
+    setConvertFrom('PEN');
+    setWalletCurrency('PEN');
   };
 
   const handleWalletSubmit = async () => {
@@ -196,20 +208,32 @@ const PortfolioDetail = () => {
       setWalletError('Ingresa un monto válido.');
       return;
     }
-    if (walletAction === 'withdraw' && amountNum > Number(portfolio?.cash_balance || 0)) {
-      setWalletError('El monto excede tu efectivo disponible.');
-      return;
+    if (walletAction === 'withdraw') {
+      const available = walletCurrency === 'USD'
+        ? Number(portfolio?.cash_balance_usd ?? 0)
+        : Number(portfolio?.cash_balance_pen ?? portfolio?.cash_balance ?? 0);
+      if (amountNum > available) {
+        setWalletError(`El monto excede tu saldo disponible en ${walletCurrency === 'USD' ? 'dólares' : 'soles'}.`);
+        return;
+      }
+    }
+    if (walletAction === 'convert') {
+      const available = convertFrom === 'PEN'
+        ? Number(portfolio?.cash_balance_pen ?? portfolio?.cash_balance ?? 0)
+        : Number(portfolio?.cash_balance_usd ?? 0);
+      if (amountNum > available) {
+        setWalletError(`El monto excede tu saldo disponible en ${convertFrom === 'PEN' ? 'soles' : 'dólares'}.`);
+        return;
+      }
     }
     const amountPayload = Number(amountNum.toFixed(2));
     setWalletSubmitting(true);
     setWalletError('');
     try {
-      await createTransaction({
-        transaction_type: walletAction === 'deposit' ? 'DEPOSIT' : 'WITHDRAWAL',
-        amount: amountPayload,
-        idempotency_key: crypto.randomUUID(),
-        portfolio_id: portfolio.id,
-      });
+      const txPayload = walletAction === 'convert'
+        ? { transaction_type: 'CONVERT', amount: amountPayload, cash_currency: convertFrom, counter_currency: convertFrom === 'PEN' ? 'USD' : 'PEN', idempotency_key: crypto.randomUUID(), portfolio_id: portfolio.id }
+        : { transaction_type: walletAction === 'deposit' ? 'DEPOSIT' : 'WITHDRAWAL', amount: amountPayload, cash_currency: walletCurrency, idempotency_key: crypto.randomUUID(), portfolio_id: portfolio.id };
+      await createTransaction(txPayload);
       try {
         const [updatedPortfolio, tx] = await Promise.all([
           getPortfolio(portfolio.id),
@@ -570,94 +594,167 @@ const PortfolioDetail = () => {
               >
                   <div className="grid" style={{ gap: 12 }}>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontWeight: 600 }}>Depósitos y retiros</div>
-                      {portfolio.description && (
-                        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                          {portfolio.description}
-                        </div>
-                      )}
+                      <div style={{ fontWeight: 600 }}>Depósitos, retiros y cambio</div>
                     </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        borderRadius: 999,
-                        overflow: 'hidden',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.18)',
-                        position: 'relative',
-                      }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: 'absolute',
-                          top: 6,
-                          bottom: 6,
-                          left: '50%',
-                          width: 1,
-                          background: 'rgba(255,255,255,0.15)',
-                          transform: 'translateX(-0.5px)',
-                          pointerEvents: 'none',
-                        }}
-                      />
-                    <button
-                      type="button"
-                        onClick={() => {
-                          setWalletAction('deposit');
-                          setWalletError('');
-                        }}
-                        className="btn ghost"
-                      style={{
-                          flex: 1,
-                          borderRadius: '999px 0 0 999px',
-                          padding: '10px 16px',
-                          border: 'none',
-                          borderRight: '1px solid rgba(255,255,255,0.12)',
-                          background: walletAction === 'deposit' ? 'var(--primary-600)' : 'transparent',
-                          boxShadow: walletAction === 'deposit' ? '0 0 12px rgba(37,99,235,0.35)' : 'none',
-                          color: walletAction === 'deposit' ? '#fff' : 'rgba(255,255,255,0.55)',
-                          fontWeight: walletAction === 'deposit' ? 600 : 400,
-                        }}
-                      >
-                        Depósito
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setWalletAction('withdraw');
-                          setWalletError('');
-                        }}
-                        className="btn ghost"
-                        style={{
-                          flex: 1,
-                          borderRadius: '0 999px 999px 0',
-                          padding: '10px 16px',
-                          border: 'none',
-                          background: walletAction === 'withdraw' ? 'var(--primary-600)' : 'transparent',
-                          boxShadow: walletAction === 'withdraw' ? '0 0 12px rgba(37,99,235,0.35)' : 'none',
-                          color: walletAction === 'withdraw' ? '#fff' : 'rgba(255,255,255,0.55)',
-                          fontWeight: walletAction === 'withdraw' ? 600 : 400,
-                        }}
-                      >
-                        Retiro
-                      </button>
-                  </div>
-                  <div className="grid" style={{ gap: 4 }}>
-                    <span className="muted" style={{ fontSize: 12 }}>
-                      Efectivo disponible: {new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(Number(portfolio?.cash_balance || 0))}
-                    </span>
-                    <label className="muted" htmlFor="wallet-amount">Monto</label>
-                    <input
-                      id="wallet-amount"
-                      className="input no-spin"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={walletAmount}
-                      onChange={(e) => setWalletAmount(e.target.value)}
-                    />
-                  </div>
+                    {/* 3-way action toggle */}
+                    <div style={{ display: 'flex', borderRadius: 999, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                      {[
+                        { id: 'deposit', label: 'Depósito' },
+                        { id: 'withdraw', label: 'Retiro' },
+                        { id: 'convert', label: 'Cambiar S/ ↔ $' },
+                      ].map((opt, i, arr) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => { setWalletAction(opt.id); setWalletError(''); setWalletAmount(''); setWalletCurrency('PEN'); }}
+                          className="btn ghost"
+                          style={{
+                            flex: 1,
+                            borderRadius: i === 0 ? '999px 0 0 999px' : i === arr.length - 1 ? '0 999px 999px 0' : '0',
+                            padding: '10px 12px',
+                            border: 'none',
+                            borderRight: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.12)' : 'none',
+                            background: walletAction === opt.id ? 'var(--primary-600)' : 'transparent',
+                            boxShadow: walletAction === opt.id ? '0 0 12px rgba(37,99,235,0.35)' : 'none',
+                            color: walletAction === opt.id ? '#fff' : 'rgba(255,255,255,0.55)',
+                            fontWeight: walletAction === opt.id ? 600 : 400,
+                            fontSize: 13,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {walletAction === 'convert' ? (
+                      <div className="grid" style={{ gap: 10 }}>
+                        {/* Direction row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+                            <div className="muted" style={{ fontSize: 10, marginBottom: 2 }}>De</div>
+                            <div style={{ fontWeight: 600 }}>{convertFrom === 'PEN' ? 'S/ Soles' : '$ Dólares'}</div>
+                            <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+                              {convertFrom === 'PEN'
+                                ? `Disponible: S/ ${Number(portfolio?.cash_balance_pen ?? portfolio?.cash_balance ?? 0).toFixed(2)}`
+                                : `Disponible: $ ${Number(portfolio?.cash_balance_usd ?? 0).toFixed(2)}`}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setConvertFrom(f => f === 'PEN' ? 'USD' : 'PEN'); setWalletAmount(''); setWalletError(''); }}
+                            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '50%', width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 16, flexShrink: 0 }}
+                            title="Invertir dirección"
+                          >
+                            ⇄
+                          </button>
+                          <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+                            <div className="muted" style={{ fontSize: 10, marginBottom: 2 }}>A</div>
+                            <div style={{ fontWeight: 600 }}>{convertFrom === 'PEN' ? '$ Dólares' : 'S/ Soles'}</div>
+                            <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+                              {convertFrom === 'PEN'
+                                ? `Tienes: $ ${Number(portfolio?.cash_balance_usd ?? 0).toFixed(2)}`
+                                : `Tienes: S/ ${Number(portfolio?.cash_balance_pen ?? portfolio?.cash_balance ?? 0).toFixed(2)}`}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Amount */}
+                        <div className="grid" style={{ gap: 4 }}>
+                          <label className="muted" htmlFor="wallet-amount" style={{ fontSize: 12 }}>
+                            Monto en {convertFrom === 'PEN' ? 'soles (S/)' : 'dólares ($)'}
+                          </label>
+                          <input
+                            id="wallet-amount"
+                            className="input no-spin"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={walletAmount}
+                            onChange={(e) => setWalletAmount(e.target.value)}
+                          />
+                        </div>
+
+                        {/* Preview */}
+                        {(() => {
+                          const amt = Number(walletAmount);
+                          if (!fxRates || !Number.isFinite(amt) || amt <= 0) return null;
+                          const venta = Number(fxRates?.venta?.rate);
+                          const compra = Number(fxRates?.compra?.rate);
+                          let preview = null;
+                          let rateLabel = '';
+                          let rateVal = '';
+                          if (convertFrom === 'PEN' && venta > 0) {
+                            preview = (amt / venta).toFixed(2);
+                            rateLabel = 'venta'; rateVal = venta.toFixed(4);
+                          } else if (convertFrom === 'USD' && compra > 0) {
+                            preview = (amt * compra).toFixed(2);
+                            rateLabel = 'compra'; rateVal = compra.toFixed(4);
+                          }
+                          if (!preview) return null;
+                          return (
+                            <div style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8, padding: '10px 12px' }}>
+                              <div style={{ fontSize: 12, color: '#aaa', marginBottom: 4 }}>Recibirás aproximadamente</div>
+                              <div style={{ fontSize: 18, fontWeight: 700, color: '#4ade80' }}>
+                                {convertFrom === 'PEN' ? `$ ${preview}` : `S/ ${preview}`}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
+                                Tasa {rateLabel}: {rateVal} PEN/USD · El monto final lo determina el servidor
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="grid" style={{ gap: 8 }}>
+                        {/* Currency picker */}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {['PEN', 'USD'].map(cur => (
+                            <button
+                              key={cur}
+                              type="button"
+                              onClick={() => { setWalletCurrency(cur); setWalletAmount(''); setWalletError(''); }}
+                              style={{
+                                flex: 1,
+                                padding: '7px 0',
+                                borderRadius: 8,
+                                border: `1px solid ${walletCurrency === cur ? 'var(--primary-600)' : 'rgba(255,255,255,0.12)'}`,
+                                background: walletCurrency === cur ? 'rgba(37,99,235,0.18)' : 'transparent',
+                                color: walletCurrency === cur ? '#fff' : 'rgba(255,255,255,0.45)',
+                                fontWeight: walletCurrency === cur ? 600 : 400,
+                                fontSize: 13,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {cur === 'PEN' ? 'S/ Soles' : '$ Dólares'}
+                            </button>
+                          ))}
+                        </div>
+                        {/* Balance for selected currency */}
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {walletAction === 'withdraw' ? 'Disponible para retirar: ' : 'Saldo actual: '}
+                          {walletCurrency === 'USD'
+                            ? `$ ${Number(portfolio?.cash_balance_usd ?? 0).toFixed(2)}`
+                            : `S/ ${Number(portfolio?.cash_balance_pen ?? portfolio?.cash_balance ?? 0).toFixed(2)}`}
+                        </div>
+                        <div className="grid" style={{ gap: 4 }}>
+                          <label className="muted" htmlFor="wallet-amount">
+                            Monto en {walletCurrency === 'USD' ? 'dólares ($)' : 'soles (S/)'}
+                          </label>
+                          <input
+                            id="wallet-amount"
+                            className="input no-spin"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={walletAmount}
+                            onChange={(e) => setWalletAmount(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   {walletError && (
                     <div className="card" style={{ background: 'rgba(239,68,68,0.12)', color: '#fca5a5', padding: 8, fontSize: 12 }}>
                       {walletError}

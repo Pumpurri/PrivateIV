@@ -91,7 +91,7 @@ const PositionsTab = ({ portfolio, holdings, summary, displayCurrency, onDisplay
           disabled={switching}
           style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
         >
-          {switching ? 'Convirtiendo…' : isUSDView ? 'Ver en S/.' : 'Ver en $'}
+          {switching ? 'Convirtiendo…' : isUSDView ? 'Ver en S/' : 'Ver en $'}
         </button>
       </div>
 
