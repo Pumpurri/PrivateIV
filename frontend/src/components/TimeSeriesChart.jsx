@@ -681,7 +681,6 @@ const TimeSeriesChart = ({
           const areaPath = (showArea && pts.length > 1)
             ? `${linePath} L${pts[pts.length - 1][0]},${baseline} L${pts[0][0]},${baseline} Z`
             : null;
-          const showMarkers = pts.length > 1 && pts.length <= 500;
           return (
             <g key={seriesItem.id}>
               {areaPath && (
@@ -698,17 +697,6 @@ const TimeSeriesChart = ({
                 strokeWidth={2}
                 vectorEffect="non-scaling-stroke"
               />
-              {showMarkers && seriesItem.filtered.map(point => (
-                <circle
-                  key={`${seriesItem.id}-${point.ts}`}
-                  cx={xScale(point.ts)}
-                  cy={yScale(point.value)}
-                  r={2.5}
-                  fill={seriesItem.color}
-                  stroke="#0f172a"
-                  strokeWidth="0.75"
-                />
-              ))}
             </g>
           );
         })}
