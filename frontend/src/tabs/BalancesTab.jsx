@@ -299,7 +299,8 @@ const BalancesTab = ({ portfolio, transactions = [] }) => {
             onRangeChange={handleRangeChange}
             yFormat="currency"
             currency="PEN"
-            showArea
+            showArea={false}
+            smooth
             loading={overviewLoading}
             ariaLabel="Evolución del balance del portafolio"
           />
