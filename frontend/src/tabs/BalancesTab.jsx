@@ -313,7 +313,13 @@ const BalancesTab = ({ portfolio, transactions = [] }) => {
         </div>
 
         {(() => {
-          // Aggregate deposits/withdrawals by year using provided transactions
+          const CURRENCY_PREFIX = { PEN: 'S/ ', USD: '$ ' };
+          const formatAmount = (currency, value) => {
+            const prefix = CURRENCY_PREFIX[currency] ?? '';
+            return `${prefix}${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          };
+
+          // Aggregate deposits/withdrawals by (year, currency)
           const agg = new Map();
           (transactions || []).forEach(t => {
             const ts = t.timestamp || t.date;
@@ -321,32 +327,36 @@ const BalancesTab = ({ portfolio, transactions = [] }) => {
             const amt = Number(t.amount ?? 0);
             if (!ts || !amt) return;
             const year = new Date(ts).getFullYear();
-            if (!agg.has(year)) agg.set(year, { deposits: 0, withdrawals: 0 });
-            if (type.includes('deposit')) agg.get(year).deposits += amt;
-            if (type.includes('withdrawal') || type.includes('retiro')) agg.get(year).withdrawals += amt;
+            const currency = (t.cash_currency || 'PEN').toUpperCase();
+            const key = `${year}|${currency}`;
+            if (!agg.has(key)) agg.set(key, { year, currency, deposits: 0, withdrawals: 0 });
+            const row = agg.get(key);
+            if (type.includes('deposit')) row.deposits += amt;
+            if (type.includes('withdrawal') || type.includes('retiro')) row.withdrawals += amt;
           });
-          const years = Array.from(agg.keys())
-            .sort((a,b) => b - a)
-            .filter(y => (agg.get(y).deposits || 0) > 0 || (agg.get(y).withdrawals || 0) > 0)
-            .slice(0, 2);
+          const rows = Array.from(agg.values())
+            .filter(r => r.deposits > 0 || r.withdrawals > 0)
+            .sort((a, b) => (b.year - a.year) || a.currency.localeCompare(b.currency));
 
-          if (years.length === 0) return <div className="muted">No hay depósitos ni retiros registrados.</div>;
+          if (rows.length === 0) return <div className="muted">No hay depósitos ni retiros registrados.</div>;
 
           return (
             <table className="table" style={{ maxWidth: 520 }}>
               <thead>
                 <tr style={{ textAlign: 'left' }}>
                   <th>Año</th>
+                  <th>Moneda</th>
                   <th>Total depósitos</th>
                   <th>Total retiros</th>
                 </tr>
               </thead>
               <tbody>
-                {years.map(y => (
-                  <tr key={y}>
-                    <td>{y}</td>
-                    <td>{formatCurrency(agg.get(y).deposits || 0)}</td>
-                    <td>{formatCurrency(agg.get(y).withdrawals || 0)}</td>
+                {rows.map(r => (
+                  <tr key={`${r.year}-${r.currency}`}>
+                    <td>{r.year}</td>
+                    <td>{r.currency}</td>
+                    <td>{formatAmount(r.currency, r.deposits)}</td>
+                    <td>{formatAmount(r.currency, r.withdrawals)}</td>
                   </tr>
                 ))}
               </tbody>
