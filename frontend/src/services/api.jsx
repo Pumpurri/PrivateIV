@@ -157,8 +157,8 @@ export const getStocksLastRefresh = async () => {
 };
 
 // Dashboard ---------------------------------------------------------------
-export const getDashboard = async () => {
-  const { data } = await apiClient.get('/dashboard/');
+export const getDashboard = async (params = {}) => {
+  const { data } = await apiClient.get('/dashboard/', { params });
   return data;
 };
 

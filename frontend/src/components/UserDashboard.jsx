@@ -10,13 +10,25 @@ import {
 } from '../services/api';
 
 const fmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const money = (n) => {
+const CURRENCY_PREFIX = { PEN: 'S/ ', USD: '$ ' };
+const money = (n, currency = 'PEN') => {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return '-';
-  return `S/ ${fmt.format(Number(n))}`;
+  const prefix = CURRENCY_PREFIX[currency] ?? '';
+  return `${prefix}${fmt.format(Number(n))}`;
 };
 const pct = (n) => {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return '-';
   return `${Number(n).toFixed(2)}%`;
+};
+
+const readStoredCurrencyMode = () => {
+  try {
+    const raw = localStorage.getItem('dashboardCurrencyMode');
+    if (raw === 'PEN' || raw === 'USD') return raw;
+  } catch {
+    /* ignore */
+  }
+  return 'PEN';
 };
 const formatDateDDMMYYYY = (value) => {
   if (!value) return '';
@@ -35,6 +47,7 @@ function UserDashboard() {
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [badgeMode, setBadgeMode] = useState('amount'); // 'amount' | 'percent'
+  const [currencyMode, setCurrencyMode] = useState(readStoredCurrencyMode); // 'PEN' | 'USD'
   const [portfolios, setPortfolios] = useState([]);
   const [dragIndex, setDragIndex] = useState(null);
   const listRef = useRef(null);
@@ -198,6 +211,14 @@ function UserDashboard() {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('dashboardCurrencyMode', currencyMode);
+    } catch {
+      /* ignore */
+    }
+  }, [currencyMode]);
+
   // Smooth enter animation for right detail card on selection changes
   useEffect(() => {
     if (!selectedId) return;
@@ -295,7 +316,7 @@ function UserDashboard() {
       setLoading(true);
       setError('');
       try {
-        const d = await getDashboard();
+        const d = await getDashboard({ currency: currencyMode });
         if (!mounted) return;
         setDash(d);
         const ordered = applySavedOrder(d.portfolios || []);
@@ -303,7 +324,7 @@ function UserDashboard() {
         const withDefault = ordered.map((p) => ({ ...p, is_default: p.id === topId }));
         setPortfolios(withDefault);
         // Auto-select first portfolio if user only has one
-        setSelectedId(ordered.length === 1 ? topId : null);
+        setSelectedId((prev) => prev ?? (ordered.length === 1 ? topId : null));
       } catch (e) {
         if (!mounted) return;
         setError('No se pudo cargar el panel');
@@ -315,7 +336,7 @@ function UserDashboard() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [currencyMode]);
 
   useEffect(() => {
     let mounted = true;
@@ -326,7 +347,7 @@ function UserDashboard() {
       }
       setLoadingOverview(true);
       try {
-        const d = await getPortfolioOverviewApi(selectedId, { days: 30 });
+        const d = await getPortfolioOverviewApi(selectedId, { days: 30, currency: currencyMode });
         if (!mounted) return;
         setOverview(d);
         setLastUpdated(new Date());
@@ -342,28 +363,62 @@ function UserDashboard() {
     return () => {
       mounted = false;
     };
-  }, [selectedId, dash]);
+  }, [selectedId, dash, currencyMode]);
 
   if (loading) return <div className="muted">Cargando panel…</div>;
   if (!dash) return <div className="down">No se pudo cargar el panel</div>;
 
-  const Pill = ({ label, abs, pctv, mode }) => {
-    const hasValue = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v));
-    const up = hasValue(abs) ? Number(abs) >= 0 : null;
-    const content = mode === 'percent'
-      ? (hasValue(pctv) ? pct(Math.abs(pctv)) : '-')
-      : (hasValue(abs) ? money(Math.abs(abs)) : '-');
-    const className = up === null ? '' : (up ? 'up' : 'down');
-    const sign = up === null ? '' : (up ? '+' : '−');
+  const hasValue = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v));
+
+  const renderSignedMoney = (value, currency) => {
+    if (!hasValue(value)) return { sign: '', className: '', text: '-' };
+    const up = Number(value) >= 0;
+    return {
+      sign: up ? '+' : '−',
+      className: up ? 'up' : 'down',
+      text: money(Math.abs(value), currency),
+    };
+  };
+
+  const Pill = ({ label, portfolioLike, absKey, pctKey, mode }) => {
+    const obj = portfolioLike || {};
+    if (mode === 'percent') {
+      const v = obj[pctKey];
+      const up = hasValue(v) ? Number(v) >= 0 : null;
+      return (
+        <span className="badge">
+          <span className="muted">{label}</span>
+          <span className={up === null ? '' : up ? 'up' : 'down'} style={{ fontWeight: 600 }}>
+            {up === null ? '' : up ? '+' : '−'}
+            {hasValue(v) ? pct(Math.abs(v)) : '-'}
+          </span>
+        </span>
+      );
+    }
+
+    const info = renderSignedMoney(obj[absKey], currencyMode);
     return (
       <span className="badge">
         <span className="muted">{label}</span>
-        <span className={className} style={{ fontWeight: 600 }}>
-          {up === null ? '' : sign}
-          {content}
+        <span className={info.className} style={{ fontWeight: 600 }}>
+          {info.sign}
+          {info.text}
         </span>
       </span>
     );
+  };
+
+  const MoneyValue = ({ portfolioLike, fieldKey, style }) => {
+    const obj = portfolioLike || {};
+    return <span style={style}>{money(obj[fieldKey], currencyMode)}</span>;
+  };
+
+  const colorClassFor = (v) => (hasValue(v) ? (Number(v) >= 0 ? 'up' : 'down') : '');
+
+  const SignedMoneyValue = ({ portfolioLike, fieldKey }) => {
+    const obj = portfolioLike || {};
+    const v = obj[fieldKey];
+    return <span className={colorClassFor(v)}>{money(v, currencyMode)}</span>;
   };
 
   const hasSelection = !!selectedId;
@@ -435,19 +490,35 @@ function UserDashboard() {
         >
           {isMobile ? (
             <div className="grid" style={{ gap: 6, width: '100%' }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div className="row" style={{ gap: 4 }}>
                   <button
                     className={`btn xs ${badgeMode === 'amount' ? 'primary' : 'ghost'}`}
                     onClick={() => setBadgeMode('amount')}
                   >
-                    S/
+                    Monto
                   </button>
                   <button
                     className={`btn xs ${badgeMode === 'percent' ? 'primary' : 'ghost'}`}
                     onClick={() => setBadgeMode('percent')}
                   >
                     %
+                  </button>
+                </div>
+                <div className="row" style={{ gap: 4 }} aria-label="Moneda de visualización">
+                  <button
+                    className={`btn xs ${currencyMode === 'PEN' ? 'primary' : 'ghost'}`}
+                    onClick={() => setCurrencyMode('PEN')}
+                    title="Mostrar en soles"
+                  >
+                    S/
+                  </button>
+                  <button
+                    className={`btn xs ${currencyMode === 'USD' ? 'primary' : 'ghost'}`}
+                    onClick={() => setCurrencyMode('USD')}
+                    title="Mostrar en dólares"
+                  >
+                    $
                   </button>
                 </div>
                 <Link to="/app/portfolios" className="btn sm primary">Crear</Link>
@@ -460,13 +531,28 @@ function UserDashboard() {
                   className={`btn xs ${badgeMode === 'amount' ? 'primary' : 'ghost'}`}
                   onClick={() => setBadgeMode('amount')}
                 >
-                  S/
+                  Monto
                 </button>
                 <button
                   className={`btn xs ${badgeMode === 'percent' ? 'primary' : 'ghost'}`}
                   onClick={() => setBadgeMode('percent')}
                 >
                   %
+                </button>
+                <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
+                <button
+                  className={`btn xs ${currencyMode === 'PEN' ? 'primary' : 'ghost'}`}
+                  onClick={() => setCurrencyMode('PEN')}
+                  title="Mostrar en soles"
+                >
+                  S/
+                </button>
+                <button
+                  className={`btn xs ${currencyMode === 'USD' ? 'primary' : 'ghost'}`}
+                  onClick={() => setCurrencyMode('USD')}
+                  title="Mostrar en dólares"
+                >
+                  $
                 </button>
               </div>
               <div>
@@ -589,10 +675,14 @@ function UserDashboard() {
                     className="grid"
                     style={{ justifyItems: 'center', textAlign: 'center', gap: isMobile ? 2 : 4, flex: '0 0 auto', minWidth: isMobile ? undefined : 160 }}
                   >
-                    <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 600 }}>{money(p.total_value)}</div>
+                    <MoneyValue
+                      portfolioLike={p}
+                      fieldKey="total_value"
+                      style={{ fontSize: isMobile ? 14 : 16, fontWeight: 600 }}
+                    />
                     <div className="row" style={{ gap: isMobile ? 2 : 4, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-                      <Pill label="Día" abs={p.day_change_abs} pctv={p.day_change_pct} mode={badgeMode} />
-                      <Pill label="Acum." abs={p.since_inception_abs} pctv={p.since_inception_pct} mode={badgeMode} />
+                      <Pill label="Día" portfolioLike={p} absKey="day_change_abs" pctKey="day_change_pct" mode={badgeMode} />
+                      <Pill label="Acum." portfolioLike={p} absKey="since_inception_abs" pctKey="since_inception_pct" mode={badgeMode} />
                     </div>
                   </div>
                 </div>
@@ -939,7 +1029,11 @@ function UserDashboard() {
                         <div className="muted" style={{ fontSize: 12 }}>
                           Valor total
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: 20 }}>{money(overview.portfolio.total_value)}</div>
+                        <MoneyValue
+                          portfolioLike={overview.portfolio}
+                          fieldKey="total_value"
+                          style={{ fontWeight: 700, fontSize: 20 }}
+                        />
                       </div>
                     </div>
 
@@ -949,11 +1043,11 @@ function UserDashboard() {
                     >
                       <div className="card">
                         <div className="muted">Efectivo</div>
-                        <div>{money(overview.portfolio.cash_balance)}</div>
+                        <MoneyValue portfolioLike={overview.portfolio} fieldKey="cash_balance" />
                       </div>
                       <div className="card">
                         <div className="muted">Inversión</div>
-                        <div>{money(overview.portfolio.current_investment_value)}</div>
+                        <MoneyValue portfolioLike={overview.portfolio} fieldKey="current_investment_value" />
                       </div>
                       <div className="card">
                         <div className="muted">Activos</div>
@@ -965,18 +1059,26 @@ function UserDashboard() {
                       </div>
                       <div className="card">
                         <div className="muted">Hoy</div>
-                        <div className={(overview.portfolio.day_change_abs === null || overview.portfolio.day_change_abs === undefined) ? '' : (Number(overview.portfolio.day_change_abs) >= 0 ? 'up' : 'down')}>
-                          {badgeMode === 'percent'
-                            ? pct(overview.portfolio.day_change_pct)
-                            : money(overview.portfolio.day_change_abs)}
+                        <div>
+                          {badgeMode === 'percent' ? (
+                            <span className={hasValue(overview.portfolio.day_change_pct) ? (Number(overview.portfolio.day_change_pct) >= 0 ? 'up' : 'down') : ''}>
+                              {hasValue(overview.portfolio.day_change_pct) ? pct(overview.portfolio.day_change_pct) : '-'}
+                            </span>
+                          ) : (
+                            <SignedMoneyValue portfolioLike={overview.portfolio} fieldKey="day_change_abs" />
+                          )}
                         </div>
                       </div>
                       <div className="card">
                         <div className="muted">Desde inicio</div>
-                        <div className={(overview.portfolio.since_inception_abs === null || overview.portfolio.since_inception_abs === undefined) ? '' : (Number(overview.portfolio.since_inception_abs) >= 0 ? 'up' : 'down')}>
-                          {badgeMode === 'percent'
-                            ? pct(overview.portfolio.since_inception_pct)
-                            : money(overview.portfolio.since_inception_abs)}
+                        <div>
+                          {badgeMode === 'percent' ? (
+                            <span className={hasValue(overview.portfolio.since_inception_pct) ? (Number(overview.portfolio.since_inception_pct) >= 0 ? 'up' : 'down') : ''}>
+                              {hasValue(overview.portfolio.since_inception_pct) ? pct(overview.portfolio.since_inception_pct) : '-'}
+                            </span>
+                          ) : (
+                            <SignedMoneyValue portfolioLike={overview.portfolio} fieldKey="since_inception_abs" />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -995,7 +1097,7 @@ function UserDashboard() {
                                 <th>Tipo</th>
                                 <th>Símbolo</th>
                                 <th>Cant.</th>
-                                <th>Monto (S/.)</th>
+                                <th>Monto</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1012,7 +1114,7 @@ function UserDashboard() {
                                     <td>{tx.transaction_type_display || '-'}</td>
                                     <td>{tx.stock_symbol || '-'}</td>
                                     <td>{tx.quantity ?? '-'}</td>
-                                    <td>{tx.amount != null ? fmt.format(Number(tx.amount)) : '-'}</td>
+                                    <td>{tx.amount != null ? `${CURRENCY_PREFIX[tx.cash_currency] ?? ''}${fmt.format(Number(tx.amount))}` : '-'}</td>
                                   </tr>
                                 ))}
                               {!(overview.recent_transactions?.length) && (
