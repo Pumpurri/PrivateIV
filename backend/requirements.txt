@@ -23,7 +23,7 @@ dj-database-url==2.1.0
 docker==7.1.0
 factory_boy==3.3.3
 Faker==37.1.0
-ddtrace==2.8.7
+ddtrace==2.21.0
 idna==3.10
 iniconfig==2.1.0
 kombu==5.5.0

@@ -8,5 +8,6 @@ class StockFactory(DjangoModelFactory):
     
     symbol = factory.Sequence(lambda n: f"STK{n:03}")
     name = factory.Faker('company')
+    currency = 'PEN'
     current_price = factory.Faker('pydecimal', right_digits=2, min_value=1, max_value=1000)
     is_active = True

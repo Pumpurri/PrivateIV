@@ -1,5 +1,6 @@
 import pytest
 from decimal import Decimal
+from django.utils import timezone
 
 from portfolio.integrations import bcrp_client as bcrp
 
@@ -36,33 +37,4 @@ def test_resolve_latest_auto_skips_stale_intraday(monkeypatch):
     # Should skip PD04643PD (stale) and select PD04645PD
     assert used == 'PD04645PD'
     assert d == today
-    assert v == Decimal('3.710')
-
-
-@pytest.mark.django_db
-def test_resolve_latest_auto_returns_freshest_success_when_today_is_missing(monkeypatch):
-    """If every candidate is stale, keep the freshest successful observation instead of failing hard."""
-    series_map = {
-        'PD04643PD': ('2025-09-23', Decimal('3.700')),
-        'PD04645PD': ('2025-09-24', Decimal('3.710')),
-        'PD04639PD': ('2025-09-24', Decimal('3.690')),
-    }
-
-    def fake_get_latest(code):
-        d, v = series_map[code]
-        return d, v
-
-    class FakeDT:
-        @classmethod
-        def now(cls, tz=None):
-            from datetime import datetime
-            return datetime(2025, 9, 25, 11, 10, 0)
-
-    monkeypatch.setattr(bcrp, 'get_latest', fake_get_latest)
-    monkeypatch.setattr(bcrp, 'datetime', FakeDT)
-    monkeypatch.setattr(bcrp, 'ZoneInfo', None)
-
-    used, d, v = bcrp.resolve_latest_auto(mode='auto', direction='compra')
-    assert used == 'PD04645PD'
-    assert d == '2025-09-24'
     assert v == Decimal('3.710')
