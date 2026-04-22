@@ -1,0 +1,409 @@
+[
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 1,
+  "fields": {
+    "minute": "0",
+    "hour": "4",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "*",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 2,
+  "fields": {
+    "minute": "30,45",
+    "hour": "9",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 3,
+  "fields": {
+    "minute": "0,15,30,45",
+    "hour": "10-15",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 4,
+  "fields": {
+    "minute": "0",
+    "hour": "16",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 5,
+  "fields": {
+    "minute": "00",
+    "hour": "9",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 6,
+  "fields": {
+    "minute": "30",
+    "hour": "16",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 7,
+  "fields": {
+    "minute": "00",
+    "hour": "18",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 8,
+  "fields": {
+    "minute": "05",
+    "hour": "18",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 9,
+  "fields": {
+    "minute": "0,15,30,45",
+    "hour": "11-13",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/Lima"
+  }
+},
+{
+  "model": "django_celery_beat.crontabschedule",
+  "pk": 10,
+  "fields": {
+    "minute": "10",
+    "hour": "16",
+    "day_of_month": "*",
+    "month_of_year": "*",
+    "day_of_week": "1-5",
+    "timezone": "America/New_York"
+  }
+},
+{
+  "model": "django_celery_beat.clockedschedule",
+  "pk": 1,
+  "fields": {
+    "clocked_time": "2025-10-24T03:14:00Z"
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 1,
+  "fields": {
+    "name": "celery.backend_cleanup",
+    "task": "celery.backend_cleanup",
+    "interval": null,
+    "crontab": 1,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": 43200,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T08:06:00.346Z",
+    "total_run_count": 14,
+    "date_changed": "2025-10-22T08:06:20.613Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 2,
+  "fields": {
+    "name": "Fetch Prices @ 9:30 & 9:45",
+    "task": "stocks.tasks.fetch_stock_prices",
+    "interval": null,
+    "crontab": 2,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T13:56:20.280Z",
+    "total_run_count": 12,
+    "date_changed": "2025-10-24T03:08:59.771Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 3,
+  "fields": {
+    "name": "Fetch Prices @ Market Hours",
+    "task": "stocks.tasks.fetch_stock_prices",
+    "interval": null,
+    "crontab": 3,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T16:00:04.382Z",
+    "total_run_count": 106,
+    "date_changed": "2025-10-24T03:08:33.640Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 4,
+  "fields": {
+    "name": "Fetch Prices @ Market Close",
+    "task": "stocks.tasks.fetch_stock_prices",
+    "interval": null,
+    "crontab": 4,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T05:48:17.242Z",
+    "total_run_count": 8,
+    "date_changed": "2025-10-24T03:07:56.740Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 5,
+  "fields": {
+    "name": "Fetch Prices @ Pre Market Hours",
+    "task": "stocks.tasks.fetch_stock_prices",
+    "interval": null,
+    "crontab": 5,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T13:10:08.043Z",
+    "total_run_count": 11,
+    "date_changed": "2025-10-24T03:07:36.647Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 6,
+  "fields": {
+    "name": "Fetch Prices @ Post Market Hours",
+    "task": "stocks.tasks.fetch_stock_prices",
+    "interval": null,
+    "crontab": 6,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T05:48:17.149Z",
+    "total_run_count": 8,
+    "date_changed": "2025-10-22T05:48:17.205Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 7,
+  "fields": {
+    "name": "Daily Snapshots @ 18:00",
+    "task": "portfolio.tasks.create_daily_snapshots",
+    "interval": null,
+    "crontab": 7,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T05:48:17.225Z",
+    "total_run_count": 8,
+    "date_changed": "2025-10-24T03:06:39.197Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 8,
+  "fields": {
+    "name": "Update TWR @ 18:05",
+    "task": "portfolio.tasks.update_all_time_weighted_returns",
+    "interval": null,
+    "crontab": 8,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T05:48:17.268Z",
+    "total_run_count": 8,
+    "date_changed": "2025-10-22T05:51:18.837Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 9,
+  "fields": {
+    "name": "FX Ingest Auto (BCRP, PEN/USD)",
+    "task": "portfolio.tasks.fx_ingest_latest_auto",
+    "interval": null,
+    "crontab": 9,
+    "solar": null,
+    "clocked": null,
+    "args": "[\"auto\"]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": "2025-10-22T16:00:04.348Z",
+    "total_run_count": 42,
+    "date_changed": "2025-10-22T16:13:11.513Z",
+    "description": ""
+  }
+},
+{
+  "model": "django_celery_beat.periodictask",
+  "pk": 11,
+  "fields": {
+    "name": "Fetch EOD Prices @ 16:10",
+    "task": "stocks.tasks.fetch_eod_prices",
+    "interval": null,
+    "crontab": 10,
+    "solar": null,
+    "clocked": null,
+    "args": "[]",
+    "kwargs": "{}",
+    "queue": null,
+    "exchange": null,
+    "routing_key": null,
+    "headers": "{}",
+    "priority": null,
+    "expires": null,
+    "expire_seconds": null,
+    "one_off": false,
+    "start_time": null,
+    "enabled": true,
+    "last_run_at": null,
+    "total_run_count": 0,
+    "date_changed": "2026-04-16T04:03:41.471Z",
+    "description": ""
+  }
+}
+]

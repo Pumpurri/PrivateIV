@@ -28,14 +28,11 @@ class HistoricalValuationService:
             if price is None:
                 price = cls._get_fallback_price(stock_id, date, portfolio)
             # Convert native price to portfolio base currency
-            try:
-                stock = Stock.objects.get(pk=stock_id)
-                native_value = price * holding['quantity']
-                # Historical valuations prefer cierre (EOD) mid (estimate)
-                rate = get_fx_rate(date, portfolio.base_currency, stock.currency, rate_type='mid', session='cierre')
-                base_value = native_value * rate
-            except Exception:
-                base_value = price * holding['quantity']
+            stock = Stock.objects.get(pk=stock_id)
+            native_value = price * holding['quantity']
+            # Historical valuations prefer cierre (EOD) mid (estimate)
+            rate = get_fx_rate(date, portfolio.base_currency, stock.currency, rate_type='mid', session='cierre')
+            base_value = native_value * rate
             total_value += base_value
             
         # Cash assumed in base currency
