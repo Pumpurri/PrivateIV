@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import DatePicker from '../components/DatePicker';
 import { formatCurrency, formatPercent } from '../utils/format';
 import { getPortfolioRealized } from '../services/api';
 
@@ -15,18 +17,115 @@ const subtractMonths = (dateObj, count) => {
   return base;
 };
 
+const parseDisplayDate = (iso) => {
+  if (!iso) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [year, month, day] = iso.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatMoney = (value, currency = 'PEN') => {
+  if ((currency || 'PEN').toUpperCase() === 'USD') {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value ?? 0));
+  }
+  return formatCurrency(value);
+};
+
+const DISPLAY_CURRENCY_NATIVE = 'NATIVE';
+const PAGE_SIZE_ALL = 'ALL';
+const PAGE_SIZE_OPTIONS = [25, 50, 100, PAGE_SIZE_ALL];
+
+const NICE_TICK_FACTORS = [1, 2, 2.5, 5, 10];
+
+const getNiceStep = (rawStep) => {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return 1;
+  const exponent = Math.floor(Math.log10(rawStep));
+  const magnitude = 10 ** exponent;
+  const fraction = rawStep / magnitude;
+  const chosenFactor = NICE_TICK_FACTORS.find((candidate) => fraction <= candidate) || NICE_TICK_FACTORS[NICE_TICK_FACTORS.length - 1];
+  return chosenFactor * magnitude;
+};
+
+const buildNiceTicks = (minValue, maxValue, targetIntervals = 4) => {
+  let min = Number.isFinite(minValue) ? minValue : 0;
+  let max = Number.isFinite(maxValue) ? maxValue : 0;
+
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.05, 1);
+    min -= pad;
+    max += pad;
+  }
+
+  const range = Math.max(max - min, 1e-9);
+  let step = getNiceStep(range / targetIntervals);
+  let tickMin = Math.floor(min / step) * step;
+  let tickMax = Math.ceil(max / step) * step;
+
+  while (((tickMax - tickMin) / step) > targetIntervals) {
+    const nextStep = getNiceStep(step * 1.5);
+    if (nextStep <= step) {
+      step *= 2;
+    } else {
+      step = nextStep;
+    }
+    tickMin = Math.floor(min / step) * step;
+    tickMax = Math.ceil(max / step) * step;
+  }
+
+  const ticks = [];
+  for (let value = tickMin; value <= tickMax + (step / 10); value += step) {
+    ticks.push(Number(value.toFixed(6)));
+  }
+
+  return {
+    ticks,
+    min: ticks[0],
+    max: ticks[ticks.length - 1],
+    step,
+  };
+};
+
 const RealizedTab = ({ portfolio }) => {
   const portfolioId = portfolio?.id;
   const [realizedView, setRealizedView] = useState('summary'); // 'summary' | 'analyzer'
   const [realizedRange, setRealizedRange] = useState('CURRENT_YEAR');
+  const [displayCurrency, setDisplayCurrency] = useState(DISPLAY_CURRENCY_NATIVE);
   const [symbolFilter, setSymbolFilter] = useState('');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [realizedData, setRealizedData] = useState(null);
+  const [chartTooltip, setChartTooltip] = useState(null);
+  const [totalTooltip, setTotalTooltip] = useState(null);
+  const [detailPageSize, setDetailPageSize] = useState(25);
+  const [detailPage, setDetailPage] = useState(1);
 
   const today = useMemo(() => new Date(), []);
+  const minDateISO = useMemo(() => {
+    const createdAt = portfolio?.created_at;
+    if (!createdAt) return undefined;
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return undefined;
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, [portfolio?.created_at]);
+  const maxDateISO = useMemo(() => {
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, [today]);
   const rangeMap = useMemo(() => {
     const formatDateISO = (dateObj) => {
       const yyyy = dateObj.getFullYear();
@@ -52,8 +151,8 @@ const RealizedTab = ({ portfolio }) => {
 
   const formatDateLabel = useCallback((iso) => {
     if (!iso) return '';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
+    const d = parseDisplayDate(iso);
+    if (!d) return '';
     return d.toLocaleDateString('es-PE');
   }, []);
 
@@ -89,6 +188,7 @@ const RealizedTab = ({ portfolio }) => {
     const params = {};
     const symbol = symbolFilter.trim();
     if (symbol) params.symbol = symbol;
+    params.display_currency = displayCurrency;
     if (realizedRange === 'CUSTOM') {
       if (customFrom) params.from = customFrom;
       if (customTo) params.to = customTo;
@@ -98,7 +198,7 @@ const RealizedTab = ({ portfolio }) => {
       if (to) params.to = to;
     }
     return params;
-  }, [symbolFilter, realizedRange, customFrom, customTo, rangeMap]);
+  }, [symbolFilter, realizedRange, customFrom, customTo, rangeMap, displayCurrency]);
 
   const loadRealized = useCallback(async (params = {}) => {
     if (!portfolioId) return;
@@ -118,8 +218,22 @@ const RealizedTab = ({ portfolio }) => {
 
   useEffect(() => {
     if (!portfolioId) return;
-    loadRealized();
-  }, [portfolioId, loadRealized]);
+    const params = {};
+    if (displayCurrency) params.display_currency = displayCurrency;
+    if (realizedRange !== 'CUSTOM') {
+      const preset = rangeMap[realizedRange];
+      if (preset) {
+        params.from = preset.from;
+        params.to = preset.to;
+      }
+    } else {
+      if (customFrom) params.from = customFrom;
+      if (customTo) params.to = customTo;
+    }
+    const symbol = symbolFilter.trim();
+    if (symbol) params.symbol = symbol;
+    loadRealized(params);
+  }, [portfolioId, displayCurrency, loadRealized]);
 
   const detailRows = useMemo(() => {
     if (!Array.isArray(realizedData?.details)) return [];
@@ -128,15 +242,19 @@ const RealizedTab = ({ portfolio }) => {
       description: item.description || '',
       closed: item.closed_date || '',
       qty: toNumber(item.quantity),
+      currency: (item.display_currency || realizedData?.summary_currency || 'PEN').toUpperCase(),
       price: toNumber(item.closing_price),
       cbMethod: item.cost_basis_method === 'Average Cost' ? 'Costo promedio' : (item.cost_basis_method || 'Costo promedio'),
       proceeds: toNumber(item.proceeds),
       costBasis: toNumber(item.cost_basis),
       total: toNumber(item.total),
+      chartTotal: toNumber(item.chart_total ?? item.total),
+      chartCostBasis: toNumber(item.chart_cost_basis ?? item.cost_basis),
+      gainPct: toNumber(item.cost_basis) ? (toNumber(item.total) / toNumber(item.cost_basis)) * 100 : 0,
       longTerm: toNumber(item.long_term),
       shortTerm: toNumber(item.short_term),
     }));
-  }, [realizedData?.details]);
+  }, [realizedData?.details, realizedData?.summary_currency]);
 
   const detailSums = useMemo(() => detailRows.reduce((acc, row) => {
     acc.proceeds += row.proceeds;
@@ -146,6 +264,19 @@ const RealizedTab = ({ portfolio }) => {
     acc.shortTerm += row.shortTerm;
     return acc;
   }, { proceeds: 0, costBasis: 0, total: 0, longTerm: 0, shortTerm: 0 }), [detailRows]);
+
+  const termBreakdown = useMemo(() => detailRows.reduce((acc, row) => {
+    if (row.longTerm !== 0) {
+      acc.longTermCostBasis += row.chartCostBasis;
+    }
+    if (row.shortTerm !== 0) {
+      acc.shortTermCostBasis += row.chartCostBasis;
+    }
+    return acc;
+  }, {
+    longTermCostBasis: 0,
+    shortTermCostBasis: 0,
+  }), [detailRows]);
 
   const totals = useMemo(() => {
     const proceeds = toNumber(realizedData?.totals?.proceeds);
@@ -174,9 +305,9 @@ const RealizedTab = ({ portfolio }) => {
   const breakdown = useMemo(() => {
     let gains = 0;
     let losses = 0;
-    detailRows.forEach(({ total }) => {
-      if (total >= 0) gains += total;
-      else losses += total;
+    detailRows.forEach(({ chartTotal }) => {
+      if (chartTotal >= 0) gains += chartTotal;
+      else losses += chartTotal;
     });
     return { gains, losses };
   }, [detailRows]);
@@ -198,18 +329,78 @@ const RealizedTab = ({ portfolio }) => {
     gainPct: toNumber(realizedData?.averages?.gain_pct),
     lossPct: toNumber(realizedData?.averages?.loss_pct),
   }), [realizedData]);
+  const nativeSummary = useMemo(() => {
+    const source = realizedData?.native_summary || {};
+    const normalizeBucket = (currency) => ({
+      currency,
+      proceeds: toNumber(source?.[currency]?.proceeds),
+      costBasis: toNumber(source?.[currency]?.cost_basis),
+      netGain: toNumber(source?.[currency]?.net_gain),
+      longTerm: toNumber(source?.[currency]?.long_term),
+      shortTerm: toNumber(source?.[currency]?.short_term),
+      gains: toNumber(source?.[currency]?.gains),
+      losses: toNumber(source?.[currency]?.losses),
+    });
+    return [normalizeBucket('PEN'), normalizeBucket('USD')];
+  }, [realizedData?.native_summary]);
 
-  const chartSeries = useMemo(() => {
-    if (!Array.isArray(realizedData?.chart)) return [];
-    return realizedData.chart
-      .map((point) => ({
-        date: point.date,
-        value: toNumber(point.net),
-      }))
-      .filter((point) => Number.isFinite(point.value));
-  }, [realizedData?.chart]);
+  const activeDisplayMode = (realizedData?.display_currency_mode || displayCurrency || DISPLAY_CURRENCY_NATIVE).toUpperCase();
+  const summaryCurrency = (realizedData?.summary_currency || realizedData?.display_currency || 'PEN').toUpperCase();
+  const currencyLabel = summaryCurrency === 'USD' ? 'USD' : 'PEN';
+  const currencyToggleLabel = activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+    ? 'Ver en S/.'
+    : activeDisplayMode === 'PEN'
+      ? 'Ver en $'
+      : 'Ver en original';
+  const nextDisplayCurrency = activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+    ? 'PEN'
+    : activeDisplayMode === 'PEN'
+      ? 'USD'
+      : DISPLAY_CURRENCY_NATIVE;
+
+  const scatterSeries = useMemo(() => detailRows
+    .map((row, idx) => {
+      const closedDate = parseDisplayDate(row.closed);
+      const pct = row.costBasis ? (row.total / row.costBasis) * 100 : 0;
+      return {
+        id: `${row.symbol}-${idx}`,
+        date: closedDate,
+        rawDate: row.closed,
+        pct,
+        total: row.total,
+        chartTotal: row.chartTotal,
+        symbol: row.symbol,
+        qty: row.qty,
+        gainPct: row.gainPct,
+        currency: row.currency,
+        };
+    })
+    .filter((point) => point.date && Number.isFinite(point.pct))
+    .sort((a, b) => a.date - b.date), [detailRows]);
 
   const hasDetails = detailRows.length > 0;
+  const totalDetailRows = detailRows.length;
+  const resolvedDetailPageSize = detailPageSize === PAGE_SIZE_ALL ? totalDetailRows || 1 : detailPageSize;
+  const totalDetailPages = Math.max(1, Math.ceil(totalDetailRows / resolvedDetailPageSize));
+
+  useEffect(() => {
+    setDetailPage(1);
+  }, [portfolioId, realizedRange, customFrom, customTo, symbolFilter, displayCurrency, realizedData?.period?.from, realizedData?.period?.to]);
+
+  useEffect(() => {
+    if (detailPage > totalDetailPages) {
+      setDetailPage(totalDetailPages);
+    }
+  }, [detailPage, totalDetailPages]);
+
+  const paginatedDetailRows = useMemo(() => {
+    if (detailPageSize === PAGE_SIZE_ALL) return detailRows;
+    const start = (detailPage - 1) * resolvedDetailPageSize;
+    return detailRows.slice(start, start + resolvedDetailPageSize);
+  }, [detailRows, detailPage, detailPageSize, resolvedDetailPageSize]);
+
+  const detailRangeStart = totalDetailRows === 0 ? 0 : ((detailPage - 1) * resolvedDetailPageSize) + 1;
+  const detailRangeEnd = totalDetailRows === 0 ? 0 : Math.min(detailPage * resolvedDetailPageSize, totalDetailRows);
 
   const onSearch = async (e) => {
     e?.preventDefault?.();
@@ -226,12 +417,13 @@ const RealizedTab = ({ portfolio }) => {
         const preset = rangeMap[nextRange];
         if (preset) {
           await loadRealized({
+            display_currency: displayCurrency,
             ...(symbolFilter.trim() ? { symbol: symbolFilter.trim() } : {}),
             from: preset.from,
             to: preset.to,
           });
         } else {
-          await loadRealized();
+          await loadRealized({ display_currency: displayCurrency });
         }
       }
     }
@@ -239,6 +431,42 @@ const RealizedTab = ({ portfolio }) => {
 
   const gainsAbs = Math.max(0, breakdown.gains);
   const lossesAbs = Math.abs(breakdown.losses);
+  const longTermPct = termBreakdown.longTermCostBasis ? (totalsDisplay.longTerm / termBreakdown.longTermCostBasis) * 100 : 0;
+  const shortTermPct = termBreakdown.shortTermCostBasis ? (totalsDisplay.shortTerm / termBreakdown.shortTermCostBasis) * 100 : 0;
+  const valueColor = (value) => {
+    if (value === 0) return 'var(--text)';
+    return value > 0 ? 'var(--accent)' : 'var(--danger)';
+  };
+
+  const renderPercentMeta = (value, pct) => {
+    if (value === 0) return '(N/A)';
+    const prefix = pct > 0 ? '+' : '';
+    return `(${prefix}${formatPercent(pct)})`;
+  };
+  const showTotalTooltip = (event, text) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTotalTooltip({
+      text,
+      top: rect.bottom + 8,
+      left: rect.left,
+    });
+  };
+  const hideTotalTooltip = () => setTotalTooltip(null);
+  const renderNativeAmountRows = (selector, { emphasizeNet = false, showLossAbs = false, forceNeutral = false } = {}) => nativeSummary.map((bucket) => {
+    const value = selector(bucket);
+    const displayValue = showLossAbs ? Math.abs(value) : value;
+    return (
+      <div className="row" style={{ justifyContent: 'space-between' }} key={`${bucket.currency}-${selector.name || 'value'}`}>
+        <span style={{ fontSize: emphasizeNet ? 13 : 12, fontWeight: emphasizeNet ? 600 : 500 }}>{bucket.currency === 'USD' ? '$' : 'S/'}</span>
+        <span
+          className={emphasizeNet ? 'tile-value' : undefined}
+          style={{ color: forceNeutral ? 'var(--text)' : valueColor(value), fontSize: emphasizeNet ? undefined : 12 }}
+        >
+          {formatMoney(displayValue, bucket.currency)}
+        </span>
+      </div>
+    );
+  });
 
   const PiePlaceholder = ({ label, gainRateValue, gains, losses }) => {
     // If no data (both gains and losses are 0), show neutral state
@@ -260,33 +488,23 @@ const RealizedTab = ({ portfolio }) => {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           {/* Semicircle gauge */}
           <svg viewBox="0 0 42 26" width={200} height={120} style={{ overflow: 'visible' }}>
-            {/* Background track (light gray semicircle) */}
-            <path
-              d="M 5.085 21 A 15.915 15.915 0 0 1 36.915 21"
-              fill="transparent"
-              stroke="rgba(255,255,255,0.06)"
-              strokeWidth="6"
-              strokeLinecap="round"
-            />
             {hasData ? (
               <>
-                {/* Loss arc (red) - draws from right to the dividing point */}
+                {/* Base arc (red remainder) */}
                 <path
                   d="M 5.085 21 A 15.915 15.915 0 0 1 36.915 21"
                   fill="transparent"
                   stroke="#ef4444"
                   strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray={`${lossLength} ${gainLength}`}
-                  strokeDashoffset="0"
+                  strokeLinecap="butt"
                 />
-                {/* Gain arc (green) - draws from left to the dividing point */}
+                {/* Gain arc (green) overlays the left portion */}
                 <path
                   d="M 5.085 21 A 15.915 15.915 0 0 1 36.915 21"
                   fill="transparent"
                   stroke="#22c55e"
                   strokeWidth="6"
-                  strokeLinecap="round"
+                  strokeLinecap="butt"
                   strokeDasharray={`${gainLength} ${lossLength}`}
                   strokeDashoffset="0"
                 />
@@ -298,15 +516,15 @@ const RealizedTab = ({ portfolio }) => {
                 fill="transparent"
                 stroke="rgba(157,176,208,0.25)"
                 strokeWidth="6"
-                strokeLinecap="round"
+                strokeLinecap="butt"
               />
             )}
             {/* Center text */}
-            <text x="21" y="18" textAnchor="middle" fill="var(--text)" fontSize="6" fontWeight="700">
+            <text x="21" y="18" textAnchor="middle" fill="var(--text)" fontSize="5.2" fontWeight="700">
               {hasData ? `${gainPct}%` : '—'}
             </text>
             <text x="21" y="23" textAnchor="middle" fill="var(--muted)" fontSize="3">
-              {hasData ? 'ganancia' : 'sin datos'}
+              {hasData ? 'ratio G/P' : 'sin datos'}
             </text>
           </svg>
         </div>
@@ -332,12 +550,6 @@ const RealizedTab = ({ portfolio }) => {
           {error}
         </div>
       )}
-      {loading && (
-        <div className="muted" style={{ fontSize: 12 }}>
-          Cargando datos de ganancias realizadas…
-        </div>
-      )}
-
       <div className="card" style={{ padding: 16 }}>
         <form onSubmit={onSearch} className="row" style={{ gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div>
@@ -353,9 +565,27 @@ const RealizedTab = ({ portfolio }) => {
             </select>
             {realizedRange === 'CUSTOM' && (
               <div className="row" style={{ gap: 8, marginTop: 6 }}>
-                <input type="date" className="input" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+                <div style={{ minWidth: 140 }}>
+                  <DatePicker
+                    label=""
+                    value={customFrom}
+                    onChange={setCustomFrom}
+                    min={minDateISO}
+                    max={maxDateISO}
+                    placeholder="dd/mm/aaaa"
+                  />
+                </div>
                 <span className="muted" style={{ fontSize: 12 }}>a</span>
-                <input type="date" className="input" value={customTo} onChange={e => setCustomTo(e.target.value)} />
+                <div style={{ minWidth: 140 }}>
+                  <DatePicker
+                    label=""
+                    value={customTo}
+                    onChange={setCustomTo}
+                    min={minDateISO}
+                    max={maxDateISO}
+                    placeholder="dd/mm/aaaa"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -364,8 +594,18 @@ const RealizedTab = ({ portfolio }) => {
             <input className="input" placeholder="ej. AAPL" value={symbolFilter} onChange={e => setSymbolFilter(e.target.value)} />
           </div>
           <div style={{ alignSelf: 'stretch', display: 'flex', alignItems: 'flex-end' }}>
-            <button className="btn primary" type="submit" disabled={loading || !portfolioId}>
-              {loading ? 'Buscando…' : 'Buscar'}
+            <button className="btn primary" type="submit" disabled={!portfolioId}>
+              Buscar
+            </button>
+          </div>
+          <div style={{ marginLeft: 'auto', alignSelf: 'flex-start', display: 'flex', alignItems: 'flex-start' }}>
+            <button
+              type="button"
+              className="btn xs ghost"
+              onClick={() => setDisplayCurrency(nextDisplayCurrency)}
+              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              {currencyToggleLabel}
             </button>
           </div>
         </form>
@@ -395,13 +635,31 @@ const RealizedTab = ({ portfolio }) => {
                 <div className="tile-title">Periodo de reporte</div>
                 <div className="muted" style={{ marginBottom: 12, fontSize: 14 }}>{resolvedPeriod}</div>
                 <div className="grid" style={{ gap: 10 }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Ingresos totales</span>
-                    <span className="tile-value">{formatCurrency(totalsDisplay.proceeds)}</span>
+                  <div>
+                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>Ingresos totales</span>
+                    </div>
+                    {activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+                      ? renderNativeAmountRows((bucket) => bucket.proceeds, { forceNeutral: true })
+                      : (
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <span />
+                          <span className="tile-value">{formatMoney(totalsDisplay.proceeds, summaryCurrency)}</span>
+                        </div>
+                      )}
                   </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Base de costo total</span>
-                    <span className="tile-value">{formatCurrency(totalsDisplay.costBasis)}</span>
+                  <div>
+                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>Base de costo total</span>
+                    </div>
+                    {activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+                      ? renderNativeAmountRows((bucket) => bucket.costBasis, { forceNeutral: true })
+                      : (
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <span />
+                          <span className="tile-value">{formatMoney(totalsDisplay.costBasis, summaryCurrency)}</span>
+                        </div>
+                      )}
                   </div>
                 </div>
               </div>
@@ -409,46 +667,111 @@ const RealizedTab = ({ portfolio }) => {
               <div className="realized-panel">
                 <div className="tile-title">Ganancia/Pérdida</div>
                 <div className="grid" style={{ gap: 8, fontSize: 12 }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span className="muted">Largo plazo (≥365 días)</span>
-                    <span style={{ color: totalsDisplay.longTerm >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-                      {formatCurrency(totalsDisplay.longTerm)}
-                    </span>
-                  </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span className="muted">Corto plazo (&lt;365 días)</span>
-                    <span style={{ color: totalsDisplay.shortTerm >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-                      {formatCurrency(totalsDisplay.shortTerm)}
-                    </span>
-                  </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span className="muted">Ganancia neta</span>
-                    <span style={{ color: totalsDisplay.netGain >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-                      {formatCurrency(totalsDisplay.netGain)}
-                    </span>
-                  </div>
+                  {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? (
+                    <>
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span className="muted">Largo plazo</span>
+                        </div>
+                        {renderNativeAmountRows((bucket) => bucket.longTerm)}
+                      </div>
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span className="muted">Corto plazo</span>
+                        </div>
+                        {renderNativeAmountRows((bucket) => bucket.shortTerm)}
+                      </div>
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span className="muted">Ganancia neta</span>
+                        </div>
+                        {renderNativeAmountRows((bucket) => bucket.netGain, { emphasizeNet: true })}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span className="muted">Largo plazo</span>
+                        <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                          <span style={{ color: valueColor(totalsDisplay.longTerm) }}>
+                            {formatMoney(totalsDisplay.longTerm, summaryCurrency)}
+                          </span>
+                          <span style={{ fontSize: 11, color: valueColor(totalsDisplay.longTerm) }}>
+                            {renderPercentMeta(totalsDisplay.longTerm, longTermPct)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span className="muted">Corto plazo</span>
+                        <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                          <span style={{ color: valueColor(totalsDisplay.shortTerm) }}>
+                            {formatMoney(totalsDisplay.shortTerm, summaryCurrency)}
+                          </span>
+                          <span style={{ fontSize: 11, color: valueColor(totalsDisplay.shortTerm) }}>
+                            {renderPercentMeta(totalsDisplay.shortTerm, shortTermPct)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span className="muted">Ganancia neta</span>
+                        <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                          <span style={{ color: valueColor(totalsDisplay.netGain) }}>
+                            {formatMoney(totalsDisplay.netGain, summaryCurrency)}
+                          </span>
+                          <span style={{ fontSize: 11, color: valueColor(totalsDisplay.netGain) }}>
+                            {renderPercentMeta(totalsDisplay.netGain, totalsDisplay.gainPct)}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
               <div className="realized-panel">
                 <div className="tile-title">Totales</div>
                 <div className="grid" style={{ gap: 10 }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Ganancias totales</span>
-                    <span className="tile-value up">{formatCurrency(gainsAbs)}</span>
-                  </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Pérdidas totales</span>
-                    <span className="tile-value down">{formatCurrency(lossesAbs)}</span>
-                  </div>
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>Ganancia neta</span>
-                      <span className="tile-value" style={{ color: totalsDisplay.netGain >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-                        {formatCurrency(totalsDisplay.netGain)}
-                      </span>
-                    </div>
-                  </div>
+                  {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? (
+                    <>
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13 }}>Ganancias totales</span>
+                        </div>
+                        {renderNativeAmountRows((bucket) => bucket.gains)}
+                      </div>
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13 }}>Pérdidas totales</span>
+                        </div>
+                        {renderNativeAmountRows((bucket) => bucket.losses, { showLossAbs: true })}
+                      </div>
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>Ganancia neta</span>
+                        </div>
+                        {renderNativeAmountRows((bucket) => bucket.netGain, { emphasizeNet: true })}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 13 }}>Ganancias totales</span>
+                        <span className="tile-value" style={{ color: valueColor(gainsAbs) }}>{formatMoney(gainsAbs, summaryCurrency)}</span>
+                      </div>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 13 }}>Pérdidas totales</span>
+                        <span className="tile-value" style={{ color: valueColor(breakdown.losses) }}>{formatMoney(lossesAbs, summaryCurrency)}</span>
+                      </div>
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>Ganancia neta</span>
+                          <span className="tile-value" style={{ color: valueColor(totalsDisplay.netGain) }}>
+                            {formatMoney(totalsDisplay.netGain, summaryCurrency)}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -466,13 +789,31 @@ const RealizedTab = ({ portfolio }) => {
                 <div className="tile-title">Periodo de reporte</div>
                 <div className="muted" style={{ marginBottom: 12, fontSize: 14 }}>{resolvedPeriod}</div>
                 <div className="grid" style={{ gap: 10 }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Ingresos totales</span>
-                    <span className="tile-value">{formatCurrency(totalsDisplay.proceeds)}</span>
+                  <div>
+                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>Ingresos totales</span>
+                    </div>
+                    {activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+                      ? renderNativeAmountRows((bucket) => bucket.proceeds, { forceNeutral: true })
+                      : (
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <span />
+                          <span className="tile-value">{formatMoney(totalsDisplay.proceeds, summaryCurrency)}</span>
+                        </div>
+                      )}
                   </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Base de costo total</span>
-                    <span className="tile-value">{formatCurrency(totalsDisplay.costBasis)}</span>
+                  <div>
+                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>Base de costo total</span>
+                    </div>
+                    {activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+                      ? renderNativeAmountRows((bucket) => bucket.costBasis, { forceNeutral: true })
+                      : (
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <span />
+                          <span className="tile-value">{formatMoney(totalsDisplay.costBasis, summaryCurrency)}</span>
+                        </div>
+                      )}
                   </div>
                 </div>
               </div>
@@ -482,17 +823,11 @@ const RealizedTab = ({ portfolio }) => {
                 <div className="grid" style={{ gap: 10 }}>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 13 }}>Ganancia promedio</span>
-                    <span className="tile-value up">{formatPercent(averages.gainPct)}</span>
+                    <span className="tile-value" style={{ color: valueColor(averages.gainPct) }}>{formatPercent(averages.gainPct)}</span>
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 13 }}>Pérdida promedio</span>
-                    <span className="tile-value down">{formatPercent(averages.lossPct)}</span>
-                  </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13 }}>Ganancia neta</span>
-                    <span className="tile-value" style={{ color: totalsDisplay.netGain >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-                      {formatPercent(totalsDisplay.gainPct)}
-                    </span>
+                    <span className="tile-value" style={{ color: valueColor(averages.lossPct) }}>{formatPercent(averages.lossPct)}</span>
                   </div>
                 </div>
               </div>
@@ -502,11 +837,11 @@ const RealizedTab = ({ portfolio }) => {
                 <div className="grid" style={{ gap: 10 }}>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 13 }}>Con ganancia</span>
-                    <span className="tile-value up">{counts.gain}</span>
+                    <span className="tile-value" style={{ color: valueColor(counts.gain) }}>{counts.gain}</span>
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 13 }}>Con pérdida</span>
-                    <span className="tile-value down">{counts.loss}</span>
+                    <span className="tile-value" style={{ color: valueColor(-counts.loss) }}>{counts.loss}</span>
                   </div>
                 </div>
               </div>
@@ -523,44 +858,220 @@ const RealizedTab = ({ portfolio }) => {
       <div className="card" style={{ padding: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Detalle de ganancias/pérdidas realizadas</div>
         <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          Valores en PEN usando método de costo promedio.
+          {activeDisplayMode === DISPLAY_CURRENCY_NATIVE
+            ? 'Valores en moneda original usando método de costo promedio.'
+            : `Valores en ${currencyLabel} usando método de costo promedio.`}
         </div>
         {(() => {
-          if (!chartSeries.length) {
+          if (!scatterSeries.length) {
             return (
               <div className="card" style={{ padding: 12, marginBottom: 12, fontSize: 12, color: 'var(--danger)' }}>
                 Aún no hay movimientos realizados en el período seleccionado para graficar.
               </div>
             );
           }
-          const values = chartSeries.map(p => p.value);
-          const w = 100;
-          const h = 40;
-          const min = Math.min(...values);
-          const max = Math.max(...values);
-          const span = max - min || 1;
-          const step = chartSeries.length > 1 ? w / (chartSeries.length - 1) : w;
-          const pts = chartSeries.map((p, idx) => {
-            const x = idx * step;
-            const y = h - ((p.value - min) / span) * h;
-            return `${x.toFixed(2)},${y.toFixed(2)}`;
-          }).join(' ');
-          const formatDate = (iso) => {
-            if (!iso) return '—';
-            const d = new Date(iso);
-            return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('es-PE');
+          const w = 1200;
+          const h = 480;
+          const leftPad = 52;
+          const rightPad = 8;
+          const topPad = 16;
+          const bottomPad = 40;
+          const plotWidth = w - leftPad - rightPad;
+          const plotHeight = h - topPad - bottomPad;
+          const pctValues = scatterSeries.map((point) => point.pct);
+          const magnitudeValues = scatterSeries.map((point) => Math.abs(
+            activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? point.total : point.chartTotal,
+          ));
+          const maxMagnitude = Math.max(...magnitudeValues, 0);
+          const niceY = buildNiceTicks(Math.min(...pctValues), Math.max(...pctValues), 4);
+          const domainMin = niceY.min;
+          const domainMax = niceY.max;
+          const domainSpan = domainMax - domainMin || 1;
+          const minTime = scatterSeries[0].date.getTime();
+          const maxTime = scatterSeries[scatterSeries.length - 1].date.getTime();
+          const timeSpan = maxTime - minTime || 1;
+          const yFor = (value) => topPad + ((domainMax - value) / domainSpan) * plotHeight;
+          const xFor = (date) => {
+            if (scatterSeries.length === 1) return leftPad + plotWidth / 2;
+            return leftPad + ((date.getTime() - minTime) / timeSpan) * plotWidth;
+          };
+          const gridValues = niceY.ticks;
+          const xTickCount = 4;
+          const xTicks = Array.from({ length: xTickCount }, (_, idx) => {
+            const ratio = xTickCount === 1 ? 0 : idx / (xTickCount - 1);
+            const tickTime = minTime + (timeSpan * ratio);
+            return new Date(tickTime);
+          });
+          const formatShortDate = (date) => date?.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) || '—';
+          const formatAxisPct = (value) => `${value > 0 ? '+' : ''}${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
+          const zeroY = yFor(0);
+          const showZeroLine = domainMin <= 0 && domainMax >= 0;
+          const radiusFor = (magnitude) => {
+            if (maxMagnitude <= 0) return 12;
+            const normalized = Math.sqrt(Math.max(0, magnitude) / maxMagnitude);
+            return 2 + (normalized * 40);
+          };
+          const scatterBubbles = scatterSeries
+            .map((point) => ({
+              ...point,
+              radius: radiusFor(Math.abs(
+                activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? point.total : point.chartTotal,
+              )),
+            }))
+            .sort((a, b) => b.radius - a.radius);
+          const fmtTooltipSigned = (value, currency) => `${value >= 0 ? '+' : '-'}${formatMoney(Math.abs(value), currency)}`;
+          const getTooltipPosition = (event) => {
+            const svgRect = event.currentTarget?.ownerSVGElement?.getBoundingClientRect();
+            if (!svgRect) return null;
+            return {
+              x: event.clientX - svgRect.left + 10,
+              y: event.clientY - svgRect.top - 10,
+            };
+          };
+          const handlePointEnter = (event, point) => {
+            const position = getTooltipPosition(event);
+            if (!position) return;
+            setChartTooltip({
+              x: position.x,
+              y: position.y,
+              point,
+            });
+          };
+          const handlePointMove = (event) => {
+            const position = getTooltipPosition(event);
+            if (!position) return;
+            setChartTooltip((current) => (
+              current
+                ? { ...current, x: position.x, y: position.y }
+                : current
+            ));
           };
           return (
-            <div className="card" style={{ padding: 12, marginBottom: 12 }}>
-              <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: 160 }}>
-                <line x1="0" y1={h - 1} x2={w} y2={h - 1} stroke="#334" strokeWidth="0.6" />
-                <line x1="1" y1="0" x2="1" y2={h} stroke="#334" strokeWidth="0.6" />
-                <polyline fill="none" stroke="rgba(37,99,235,1)" strokeWidth="1.6" points={pts} />
-              </svg>
-              <div className="row" style={{ justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
-                <span className="muted">Inicio: {formatDate(chartSeries[0]?.date)}</span>
-                <span className="muted">Fin: {formatDate(chartSeries[chartSeries.length - 1]?.date)}</span>
+            <div style={{ width: '90%', margin: '0 auto 12px', padding: 4, position: 'relative' }}>
+              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Rendimiento realizado por operación (%)
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Gráfico basado en {scatterSeries.length} registros
+                </div>
               </div>
+              <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: 460, display: 'block' }}>
+                {gridValues.map((value, idx) => {
+                  const y = yFor(value);
+                  return (
+                    <g key={`grid-${idx}`}>
+                      <line
+                        x1={leftPad}
+                        y1={y}
+                        x2={w - rightPad}
+                        y2={y}
+                        stroke="rgba(157,176,208,0.16)"
+                        strokeWidth="0.5"
+                      />
+                      <text
+                        x={leftPad - 1.5}
+                        y={y + 4}
+                        textAnchor="end"
+                        fill="var(--muted)"
+                        fontSize="11"
+                      >
+                        {formatAxisPct(value)}
+                      </text>
+                    </g>
+                  );
+                })}
+                {showZeroLine && (
+                  <line
+                    x1={leftPad}
+                    y1={zeroY}
+                    x2={w - rightPad}
+                    y2={zeroY}
+                    stroke="rgba(157,176,208,0.32)"
+                    strokeWidth="0.65"
+                  />
+                )}
+                {xTicks.map((tick, idx) => {
+                  const x = xFor(tick);
+                  return (
+                    <g key={`tick-${idx}`}>
+                      <line
+                        x1={x}
+                        y1={topPad}
+                        x2={x}
+                        y2={h - bottomPad}
+                        stroke="rgba(157,176,208,0.08)"
+                        strokeWidth="0.45"
+                      />
+                      <text
+                        x={x}
+                        y={h - 12}
+                        textAnchor="middle"
+                        fill="var(--muted)"
+                        fontSize="11"
+                      >
+                        {formatShortDate(tick)}
+                      </text>
+                    </g>
+                  );
+                })}
+                {scatterBubbles.map((point) => {
+                  const x = xFor(point.date);
+                  const y = yFor(point.pct);
+                  const stroke = point.total > 0 ? 'var(--accent)' : point.total < 0 ? 'var(--danger)' : 'var(--text)';
+                  const fill = point.total > 0
+                    ? 'rgba(34,197,94,0.20)'
+                    : point.total < 0
+                      ? 'rgba(239,68,68,0.20)'
+                      : 'rgba(231,238,252,0.18)';
+                  return (
+                    <circle
+                      key={point.id}
+                      cx={x}
+                      cy={y}
+                      r={point.radius}
+                      fill={fill}
+                      stroke={stroke}
+                      strokeWidth="2"
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={(event) => handlePointEnter(event, point)}
+                      onMouseMove={handlePointMove}
+                      onMouseLeave={() => setChartTooltip(null)}
+                    />
+                  );
+                })}
+              </svg>
+              {chartTooltip && (
+                <div
+                  className="card"
+                  style={{
+                    position: 'absolute',
+                    left: Math.min(chartTooltip.x, 760),
+                    top: Math.max(chartTooltip.y, 44),
+                    padding: '10px 12px',
+                    minWidth: 220,
+                    pointerEvents: 'none',
+                    zIndex: 3,
+                    boxShadow: '0 10px 24px rgba(0,0,0,.35)',
+                    background: 'linear-gradient(180deg, rgba(18,26,47,.98), rgba(12,20,39,.98))',
+                  }}
+                >
+                  <div style={{ fontSize: 12, marginBottom: 6 }}>
+                    <span className="muted">Closed Date:</span>{' '}
+                    <span>{formatDateLabel(chartTooltip.point.rawDate)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, marginBottom: 6 }}>
+                    <span className="muted">Transaction:</span>{' '}
+                    <span>{chartTooltip.point.symbol} Sold {chartTooltip.point.qty}</span>
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    <span className="muted">Gain:</span>{' '}
+                    <span style={{ color: valueColor(chartTooltip.point.total) }}>
+                      {fmtTooltipSigned(chartTooltip.point.total, chartTooltip.point.currency)} ({chartTooltip.point.gainPct >= 0 ? '+' : ''}{formatPercent(chartTooltip.point.gainPct)})
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -573,11 +1084,11 @@ const RealizedTab = ({ portfolio }) => {
               </div>
             );
           }
-          const fmtSigned = (v) => `${v >= 0 ? '+' : ''}${formatCurrency(v)}`;
+          const fmtSigned = (v, currency) => `${v >= 0 ? '+' : ''}${formatMoney(v, currency)}`;
           const fmtDate = (iso) => {
             if (!iso) return '—';
-            const d = new Date(iso);
-            return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('es-PE');
+            const d = parseDisplayDate(iso);
+            return d ? d.toLocaleDateString('es-PE') : iso;
           };
           const formatQty = (qty) => {
             const num = Number(qty);
@@ -585,59 +1096,193 @@ const RealizedTab = ({ portfolio }) => {
             return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
           };
           const totalsRow = totalsDisplay;
+          const nativeTotalRows = nativeSummary.map((bucket) => ({
+            label: bucket.currency === 'USD' ? 'Totales por moneda original ($)' : 'Totales por moneda original (S/)',
+            currency: bucket.currency,
+            proceeds: bucket.proceeds,
+            costBasis: bucket.costBasis,
+            netGain: bucket.netGain,
+            longTerm: bucket.longTerm,
+            shortTerm: bucket.shortTerm,
+          }));
           return (
-            <div className="scroll-pretty" style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', fontSize: 11, lineHeight: 1.25, color: 'var(--danger)' }}>
-              <table className="table positions-table realized-details-table" style={{ minWidth: 1100, fontSize: 11 }}>
-                <thead>
-                  <tr style={{ textAlign: 'left' }}>
-                    <th className="sticky-col" style={{ whiteSpace: 'nowrap', minWidth: 90 }}>Símbolo</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 380 }}>Descripción</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Fecha de cierre</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 70 }}>Cantidad</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Precio venta (PEN)</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 150 }}>Método de base de costo</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Ingresos (PEN)</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>Base de costo (PEN)</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Total (PEN)</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>Largo plazo (PEN)</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>Corto plazo (PEN)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailRows.map((r, idx) => (
-                    <tr key={`${r.symbol}-${idx}`}>
-                      <td className="sticky-col" style={{ fontWeight: 600, minWidth: 90 }}>{r.symbol}</td>
-                      <td style={{ minWidth: 380 }}>{r.description}</td>
-                      <td style={{ minWidth: 120 }}>{fmtDate(r.closed)}</td>
-                      <td style={{ minWidth: 70 }}>{formatQty(r.qty)}</td>
-                      <td style={{ minWidth: 120 }}>{formatCurrency(r.price)}</td>
-                      <td style={{ minWidth: 150 }}>{r.cbMethod}</td>
-                      <td style={{ minWidth: 120 }}>{formatCurrency(r.proceeds)}</td>
-                      <td style={{ minWidth: 140 }}>{formatCurrency(r.costBasis)}</td>
-                      <td style={{ minWidth: 120 }} className={r.total >= 0 ? 'up' : 'down'}>{fmtSigned(r.total)}</td>
-                      <td style={{ minWidth: 140 }} className={r.longTerm >= 0 ? 'up' : 'down'}>{formatCurrency(r.longTerm)}</td>
-                      <td style={{ minWidth: 140 }} className={r.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(r.shortTerm)}</td>
+            <>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {totalDetailRows === 0
+                    ? '0 resultados'
+                    : `${detailRangeStart}-${detailRangeEnd} de ${totalDetailRows} resultados`}
+                </div>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <span className="muted" style={{ fontSize: 12 }}>Máx. entradas</span>
+                  <select
+                    className="select"
+                    value={detailPageSize}
+                    onChange={(e) => {
+                      const nextValue = e.target.value === PAGE_SIZE_ALL ? PAGE_SIZE_ALL : Number(e.target.value);
+                      setDetailPageSize(nextValue);
+                      setDetailPage(1);
+                    }}
+                    style={{ minWidth: 92 }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option === PAGE_SIZE_ALL ? 'Todos' : option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="scroll-pretty" style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', fontSize: 11, lineHeight: 1.25, color: 'var(--danger)' }}>
+                <table className="table positions-table realized-details-table" style={{ minWidth: 1100, fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left' }}>
+                      <th className="sticky-col" style={{ whiteSpace: 'nowrap', minWidth: 90 }}>Símbolo</th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 380 }}>Descripción</th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Fecha de cierre</th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 70 }}>Cantidad</th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>
+                        {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? 'Precio venta' : `Precio venta (${currencyLabel})`}
+                      </th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 150 }}>Método de base de costo</th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>
+                        {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? 'Ingresos' : `Ingresos (${currencyLabel})`}
+                      </th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>
+                        {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? 'Base de costo' : `Base de costo (${currencyLabel})`}
+                      </th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>
+                        {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? 'Total' : `Total (${currencyLabel})`}
+                      </th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>
+                        {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? 'Largo plazo' : `Largo plazo (${currencyLabel})`}
+                      </th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>
+                        {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? 'Corto plazo' : `Corto plazo (${currencyLabel})`}
+                      </th>
                     </tr>
-                  ))}
-                  <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                    <td className="sticky-col" style={{ fontWeight: 700, minWidth: 90 }}>Total de la cuenta</td>
-                    <td style={{ minWidth: 380 }}>—</td>
-                    <td style={{ minWidth: 120 }}>—</td>
-                    <td style={{ minWidth: 70 }}>—</td>
-                    <td style={{ minWidth: 120 }}>—</td>
-                    <td style={{ minWidth: 150 }}>—</td>
-                    <td style={{ minWidth: 120 }}>{formatCurrency(totalsRow.proceeds)}</td>
-                    <td style={{ minWidth: 140 }}>{formatCurrency(totalsRow.costBasis)}</td>
-                    <td style={{ minWidth: 120 }} className={totalsRow.netGain >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.netGain)}</td>
-                    <td style={{ minWidth: 140 }} className={totalsRow.longTerm >= 0 ? 'up' : 'down'}>{formatCurrency(totalsRow.longTerm)}</td>
-                    <td style={{ minWidth: 140 }} className={totalsRow.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.shortTerm)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {paginatedDetailRows.map((r, idx) => (
+                      <tr key={`${r.symbol}-${detailRangeStart + idx}`}>
+                        <td className="sticky-col" style={{ fontWeight: 600, minWidth: 90 }}>{r.symbol}</td>
+                        <td style={{ minWidth: 380 }}>{r.description}</td>
+                        <td style={{ minWidth: 120 }}>{fmtDate(r.closed)}</td>
+                        <td style={{ minWidth: 70 }}>{formatQty(r.qty)}</td>
+                        <td style={{ minWidth: 120 }}>{formatMoney(r.price, r.currency)}</td>
+                        <td style={{ minWidth: 150 }}>{r.cbMethod}</td>
+                        <td style={{ minWidth: 120 }}>{formatMoney(r.proceeds, r.currency)}</td>
+                        <td style={{ minWidth: 140 }}>{formatMoney(r.costBasis, r.currency)}</td>
+                        <td style={{ minWidth: 120 }} className={r.total >= 0 ? 'up' : 'down'}>{fmtSigned(r.total, r.currency)}</td>
+                        <td style={{ minWidth: 140 }} className={r.longTerm >= 0 ? 'up' : 'down'}>{formatMoney(r.longTerm, r.currency)}</td>
+                        <td style={{ minWidth: 140 }} className={r.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(r.shortTerm, r.currency)}</td>
+                      </tr>
+                    ))}
+                    {activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? nativeTotalRows.map((row) => (
+                      <tr key={`native-total-${row.currency}`} style={{ background: 'rgba(255,255,255,0.04)' }}>
+                        <td className="sticky-col" style={{ fontWeight: 700, minWidth: 90 }}>
+                          <span
+                            onMouseEnter={(event) => showTotalTooltip(event, row.label)}
+                            onMouseLeave={hideTotalTooltip}
+                            style={{ textDecoration: 'underline dotted', cursor: 'help', textDecorationColor: '#666' }}
+                          >
+                            {row.label}
+                          </span>
+                        </td>
+                        <td style={{ minWidth: 380 }}>—</td>
+                        <td style={{ minWidth: 120 }}>—</td>
+                        <td style={{ minWidth: 70 }}>—</td>
+                        <td style={{ minWidth: 120 }}>—</td>
+                        <td style={{ minWidth: 150 }}>—</td>
+                        <td style={{ minWidth: 120 }}>{formatMoney(row.proceeds, row.currency)}</td>
+                        <td style={{ minWidth: 140 }}>{formatMoney(row.costBasis, row.currency)}</td>
+                        <td style={{ minWidth: 120 }} className={row.netGain >= 0 ? 'up' : 'down'}>{fmtSigned(row.netGain, row.currency)}</td>
+                        <td style={{ minWidth: 140 }} className={row.longTerm >= 0 ? 'up' : 'down'}>{formatMoney(row.longTerm, row.currency)}</td>
+                        <td style={{ minWidth: 140 }} className={row.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(row.shortTerm, row.currency)}</td>
+                      </tr>
+                    )) : (
+                      <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                        <td className="sticky-col" style={{ fontWeight: 700, minWidth: 90 }}>
+                          <span
+                            onMouseEnter={(event) => showTotalTooltip(event, 'Total de la cuenta')}
+                            onMouseLeave={hideTotalTooltip}
+                            style={{ textDecoration: 'underline dotted', cursor: 'help', textDecorationColor: '#666' }}
+                          >
+                            Total de la cuenta
+                          </span>
+                        </td>
+                        <td style={{ minWidth: 380 }}>—</td>
+                        <td style={{ minWidth: 120 }}>—</td>
+                        <td style={{ minWidth: 70 }}>—</td>
+                        <td style={{ minWidth: 120 }}>—</td>
+                        <td style={{ minWidth: 150 }}>—</td>
+                        <td style={{ minWidth: 120 }}>{formatMoney(totalsRow.proceeds, summaryCurrency)}</td>
+                        <td style={{ minWidth: 140 }}>{formatMoney(totalsRow.costBasis, summaryCurrency)}</td>
+                        <td style={{ minWidth: 120 }} className={totalsRow.netGain >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.netGain, summaryCurrency)}</td>
+                        <td style={{ minWidth: 140 }} className={totalsRow.longTerm >= 0 ? 'up' : 'down'}>{formatMoney(totalsRow.longTerm, summaryCurrency)}</td>
+                        <td style={{ minWidth: 140 }} className={totalsRow.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.shortTerm, summaryCurrency)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {detailPageSize !== PAGE_SIZE_ALL && totalDetailPages > 1 && (
+                <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Página {detailPage} de {totalDetailPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn xs ghost"
+                    onClick={() => setDetailPage((page) => Math.max(1, page - 1))}
+                    disabled={detailPage <= 1}
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    className="btn xs ghost"
+                    onClick={() => setDetailPage((page) => Math.min(totalDetailPages, page + 1))}
+                    disabled={detailPage >= totalDetailPages}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              )}
+            </>
           );
         })()}
       </div>
+      {totalTooltip && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: totalTooltip.top,
+          left: totalTooltip.left,
+          padding: '10px 14px',
+          backgroundColor: '#1a1a1a',
+          border: '1px solid #333',
+          borderRadius: '6px',
+          whiteSpace: 'nowrap',
+          zIndex: 2000,
+          fontSize: '11px',
+          fontStyle: 'normal',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+          pointerEvents: 'none',
+        }}>
+          {totalTooltip.text}
+          <div style={{
+            position: 'absolute',
+            top: '-6px',
+            left: '20px',
+            width: 0,
+            height: 0,
+            borderLeft: '6px solid transparent',
+            borderRight: '6px solid transparent',
+            borderBottom: '6px solid #1a1a1a',
+          }} />
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

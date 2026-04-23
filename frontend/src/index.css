@@ -440,8 +440,9 @@ code { font-family: var(--font-mono); }
 .datepicker .datepicker-trigger .input { padding-right: 38px; }
 .datepicker .datepicker-trigger .icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); }
 .datepicker .datepicker-pop { position: absolute; z-index: 20; margin-top: 6px; width: 100%; max-width: 320px; background: #121a32 !important; border: 1px solid var(--border); }
-.datepicker .datepicker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.datepicker .datepicker-head { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 8px; align-items: center; margin-bottom: 8px; }
 .datepicker .month-title { font-weight: 600; }
+.datepicker .datepicker-select { min-width: 0; width: 100%; height: 34px; padding-top: 6px; padding-bottom: 6px; }
 .datepicker .datepicker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .datepicker .cell { padding: 8px 0; text-align: center; border: 1px solid var(--border); border-radius: 8px; background: #0f1730; color: var(--text); cursor: pointer; transition: transform .12s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease; }
 .datepicker .cell.head { background: transparent; border-color: transparent; color: var(--muted); cursor: default; }
@@ -587,16 +588,21 @@ code { font-family: var(--font-mono); }
 
 .realized-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
   margin-top: 16px;
+  background: transparent;
 }
 
 .realized-panel {
-  background: linear-gradient(180deg, rgba(18,26,47,.5), rgba(12,20,39,.5));
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-right: 1px solid var(--border);
+  background: transparent;
+}
+
+.realized-panel:last-child {
+  border-right: none;
 }
 
 .tile-title {
@@ -609,7 +615,9 @@ code { font-family: var(--font-mono); }
 }
 
 .tile-value {
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.2;
   color: var(--text);
 }
 
@@ -628,8 +636,31 @@ code { font-family: var(--font-mono); }
   }
 }
 
+@media (max-width: 1200px) {
+  .realized-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .realized-panel:nth-child(2n) {
+    border-right: none;
+  }
+
+  .realized-panel:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+}
+
 @media (max-width: 768px) {
   .realized-grid {
     grid-template-columns: 1fr;
+  }
+
+  .realized-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .realized-panel:last-child {
+    border-bottom: none;
   }
 }
