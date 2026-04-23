@@ -8,13 +8,35 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from portfolio.models import Portfolio, RealizedPNL
+from portfolio.models import Portfolio, RealizedPNL, Transaction
 
 
 def _to_decimal(value):
     if isinstance(value, Decimal):
         return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     return Decimal(value).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def _resolve_acquisition_date(pnl):
+    sell_timestamp = pnl.transaction.timestamp
+    acquisition_date = pnl.acquisition_date
+
+    if acquisition_date and acquisition_date <= sell_timestamp:
+        return acquisition_date
+
+    buy_timestamp = (
+        Transaction.all_objects
+        .filter(
+            portfolio=pnl.portfolio,
+            stock=pnl.stock,
+            transaction_type=Transaction.TransactionType.BUY,
+            timestamp__lte=sell_timestamp,
+        )
+        .order_by('timestamp')
+        .values_list('timestamp', flat=True)
+        .first()
+    )
+    return buy_timestamp or acquisition_date
 
 
 class PortfolioRealizedView(APIView):
@@ -51,10 +73,11 @@ class PortfolioRealizedView(APIView):
             RealizedPNL.objects
             .filter(
                 portfolio=portfolio,
-                realized_at__date__gte=date_from,
-                realized_at__date__lte=date_to,
+                transaction__timestamp__date__gte=date_from,
+                transaction__timestamp__date__lte=date_to,
             )
             .select_related('transaction__stock', 'stock')
+            .order_by('-transaction__timestamp', '-id')
         )
 
         if symbol:
@@ -116,9 +139,9 @@ class PortfolioRealizedView(APIView):
             long_term_gain = Decimal('0.00')
             short_term_gain = Decimal('0.00')
 
-            if pnl.acquisition_date:
+            acquisition_date = _resolve_acquisition_date(pnl)
+            if acquisition_date:
                 sell_date = pnl.transaction.timestamp
-                acquisition_date = pnl.acquisition_date
                 holding_days = (sell_date - acquisition_date).days
 
                 # Long-term if held for 365 days or more
@@ -152,6 +175,8 @@ class PortfolioRealizedView(APIView):
                 'symbol': pnl.stock.symbol,
                 'description': pnl.stock.name,
                 'closed_date': pnl.transaction.timestamp.isoformat(),
+                'acquisition_date': acquisition_date.isoformat() if acquisition_date else None,
+                'holding_days': holding_days if acquisition_date else None,
                 'quantity': pnl.quantity,
                 'closing_price': str(_to_decimal(pnl.sell_price)),
                 'cost_basis_method': 'Average Cost',
