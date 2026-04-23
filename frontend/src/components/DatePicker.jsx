@@ -71,19 +71,21 @@ export default function DatePicker({ id, label = 'Fecha', value, onChange, max, 
     return rows;
   }, [viewYear, viewMonth]);
 
-  function goPrevMonth() {
-    let m = viewMonth - 1;
-    let y = viewYear;
-    if (m < 0) { m = 11; y -= 1; }
-    setViewMonth(m); setViewYear(y);
-  }
+  const yearOptions = useMemo(() => {
+    const years = [];
+    for (let year = minDate.getFullYear(); year <= maxDate.getFullYear(); year += 1) {
+      years.push(year);
+    }
+    return years;
+  }, [minDate, maxDate]);
 
-  function goNextMonth() {
-    let m = viewMonth + 1;
-    let y = viewYear;
-    if (m > 11) { m = 0; y += 1; }
-    setViewMonth(m); setViewYear(y);
-  }
+  const monthOptions = useMemo(() => {
+    const startMonth = viewYear === minDate.getFullYear() ? minDate.getMonth() : 0;
+    const endMonth = viewYear === maxDate.getFullYear() ? maxDate.getMonth() : 11;
+    return months
+      .map((label, index) => ({ label, index }))
+      .filter(({ index }) => index >= startMonth && index <= endMonth);
+  }, [viewYear, minDate, maxDate]);
 
   function isDisabled(d) {
     if (d == null) return true;
@@ -105,8 +107,14 @@ export default function DatePicker({ id, label = 'Fecha', value, onChange, max, 
   }
 
   useEffect(() => {
-    // If navigating months beyond max/min, clamp navigation buttons
-  }, [viewMonth, viewYear, maxDate, minDate]);
+    const startMonth = viewYear === minDate.getFullYear() ? minDate.getMonth() : 0;
+    const endMonth = viewYear === maxDate.getFullYear() ? maxDate.getMonth() : 11;
+    if (viewMonth < startMonth) {
+      setViewMonth(startMonth);
+    } else if (viewMonth > endMonth) {
+      setViewMonth(endMonth);
+    }
+  }, [viewMonth, viewYear, minDate, maxDate]);
 
   // Helpers to compute a hint date from partial user input without requiring Enter
   function lastValidDateWithDay(day) {
@@ -198,12 +206,23 @@ export default function DatePicker({ id, label = 'Fecha', value, onChange, max, 
   return (
     <div className="datepicker" ref={ref}>
       {label && <label className="muted" htmlFor={id}>{label}</label>}
-      <div className="datepicker-trigger" onClick={() => setOpen(o => !o)} role="button" tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpen(o => !o); }}>
+      <div
+        className="datepicker-trigger"
+        onClick={() => setOpen(true)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
         <input
           id={id}
           className="input"
           value={text}
+          onFocus={() => setOpen(true)}
           onChange={(e) => {
             const t = e.target.value;
             setText(t);
@@ -230,9 +249,30 @@ export default function DatePicker({ id, label = 'Fecha', value, onChange, max, 
       {open && (
         <div className="datepicker-pop card">
           <div className="datepicker-head">
-            <button className="btn" onClick={goPrevMonth} aria-label="Mes anterior">◀</button>
-            <div className="month-title">{months[viewMonth]} {viewYear}</div>
-            <button className="btn" onClick={goNextMonth} aria-label="Mes siguiente">▶</button>
+            <select
+              className="select datepicker-select"
+              aria-label="Mes"
+              value={viewMonth}
+              onChange={(e) => setViewMonth(Number(e.target.value))}
+            >
+              {monthOptions.map((option) => (
+                <option key={option.index} value={option.index}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select datepicker-select"
+              aria-label="Año"
+              value={viewYear}
+              onChange={(e) => setViewYear(Number(e.target.value))}
+            >
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="datepicker-grid">
             {['D','L','M','X','J','V','S'].map((d,i) => (
