@@ -396,8 +396,27 @@ class TransactionService:
                 purchase_price=pnl_data['purchase_price'],
                 sell_price=pnl_data['sell_price'],
                 pnl=pnl_data['pnl_value'],
-                acquisition_date=pnl_data.get('acquisition_date')  # Save acquisition date for holding period
+                acquisition_date=cls._resolve_realized_acquisition_date(
+                    transaction,
+                    fallback=pnl_data.get('acquisition_date'),
+                )
             )
+
+    @classmethod
+    def _resolve_realized_acquisition_date(cls, transaction, fallback=None):
+        buy_timestamp = (
+            Transaction.all_objects
+            .filter(
+                portfolio=transaction.portfolio,
+                stock=transaction.stock,
+                transaction_type=Transaction.TransactionType.BUY,
+                timestamp__lte=transaction.timestamp,
+            )
+            .order_by('timestamp')
+            .values_list('timestamp', flat=True)
+            .first()
+        )
+        return buy_timestamp or fallback
 
     @classmethod
     def _notify_ops_team(cls, transaction, error_msg):

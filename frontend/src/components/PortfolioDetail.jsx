@@ -31,7 +31,7 @@ const PortfolioDetail = () => {
   const visibleTabs = useMemo(() => {
     return tabsList.map(t => ({
       ...t,
-      disabled: (t.id === 'realized' || t.id === 'performance') && !isAdmin
+      disabled: t.id === 'performance' && !isAdmin
     }));
   }, [isAdmin]);
 
@@ -74,7 +74,7 @@ const PortfolioDetail = () => {
     }
 
     // Redirect non-admin from admin-only tabs
-    if ((tab === 'realized' || tab === 'performance') && !isAdmin) {
+    if (tab === 'performance' && !isAdmin) {
       navigate(`/app/portfolios/${id}/balances`, { replace: true });
       return;
     }
@@ -864,7 +864,7 @@ const PortfolioDetail = () => {
           <React.Suspense fallback={<div className="muted">Loading…</div>}>
             {activeTab === 'balances' && <BalancesTab portfolio={portfolio} transactions={transactions} />}
             {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} summary={holdingsSummary} displayCurrency={displayCurrency} onDisplayCurrencyChange={async (cur) => { setDisplayCurrency(cur); await refreshAll(cur); }} />}
-            {activeTab === 'realized' && isAdmin && <RealizedTab portfolio={portfolio} />}
+            {activeTab === 'realized' && <RealizedTab portfolio={portfolio} />}
             {activeTab === 'performance' && isAdmin && <PerformanceTab />}
             {activeTab === 'history' && <HistoryTab transactions={transactions} />}
             {activeTab === 'trade' && <TradeTab portfolio={portfolio} holdings={holdings} onTransaction={refreshAll} />}

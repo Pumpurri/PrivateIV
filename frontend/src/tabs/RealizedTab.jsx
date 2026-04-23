@@ -129,7 +129,7 @@ const RealizedTab = ({ portfolio }) => {
       closed: item.closed_date || '',
       qty: toNumber(item.quantity),
       price: toNumber(item.closing_price),
-      cbMethod: item.cost_basis_method || 'FIFO',
+      cbMethod: item.cost_basis_method === 'Average Cost' ? 'Costo promedio' : (item.cost_basis_method || 'Costo promedio'),
       proceeds: toNumber(item.proceeds),
       costBasis: toNumber(item.cost_basis),
       total: toNumber(item.total),
@@ -158,15 +158,18 @@ const RealizedTab = ({ portfolio }) => {
   }, [realizedData]);
 
   const totalsDisplay = useMemo(() => {
-    const fallback = detailSums;
-    const proceeds = totals.proceeds || fallback.proceeds;
-    const costBasis = totals.costBasis || fallback.costBasis;
-    const netGain = totals.netGain || fallback.total;
-    const gainPct = totals.gainPct;
-    const longTerm = totals.longTerm || fallback.longTerm;
-    const shortTerm = totals.shortTerm || fallback.shortTerm || netGain;
-    return { proceeds, costBasis, netGain, gainPct, longTerm, shortTerm };
-  }, [totals, detailSums]);
+    if (realizedData?.totals) {
+      return totals;
+    }
+    return {
+      proceeds: detailSums.proceeds,
+      costBasis: detailSums.costBasis,
+      netGain: detailSums.total,
+      gainPct: totals.gainPct,
+      longTerm: detailSums.longTerm,
+      shortTerm: detailSums.shortTerm,
+    };
+  }, [realizedData?.totals, totals, detailSums]);
 
   const breakdown = useMemo(() => {
     let gains = 0;
@@ -519,6 +522,9 @@ const RealizedTab = ({ portfolio }) => {
       {/* Details card with chart and table */}
       <div className="card" style={{ padding: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Detalle de ganancias/pérdidas realizadas</div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          Valores en PEN usando método de costo promedio.
+        </div>
         {(() => {
           if (!chartSeries.length) {
             return (
@@ -588,13 +594,13 @@ const RealizedTab = ({ portfolio }) => {
                     <th style={{ whiteSpace: 'nowrap', minWidth: 380 }}>Descripción</th>
                     <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Fecha de cierre</th>
                     <th style={{ whiteSpace: 'nowrap', minWidth: 70 }}>Cantidad</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 100 }}>Precio de cierre</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Precio venta (PEN)</th>
                     <th style={{ whiteSpace: 'nowrap', minWidth: 150 }}>Método de base de costo</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Ingresos</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Base de costo (CB)</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Total</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Largo plazo</th>
-                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Corto plazo</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Ingresos (PEN)</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>Base de costo (PEN)</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: 120 }}>Total (PEN)</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>Largo plazo (PEN)</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: 140 }}>Corto plazo (PEN)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -604,13 +610,13 @@ const RealizedTab = ({ portfolio }) => {
                       <td style={{ minWidth: 380 }}>{r.description}</td>
                       <td style={{ minWidth: 120 }}>{fmtDate(r.closed)}</td>
                       <td style={{ minWidth: 70 }}>{formatQty(r.qty)}</td>
-                      <td style={{ minWidth: 100 }}>{formatCurrency(r.price)}</td>
+                      <td style={{ minWidth: 120 }}>{formatCurrency(r.price)}</td>
                       <td style={{ minWidth: 150 }}>{r.cbMethod}</td>
                       <td style={{ minWidth: 120 }}>{formatCurrency(r.proceeds)}</td>
-                      <td style={{ minWidth: 120 }}>{formatCurrency(r.costBasis)}</td>
+                      <td style={{ minWidth: 140 }}>{formatCurrency(r.costBasis)}</td>
                       <td style={{ minWidth: 120 }} className={r.total >= 0 ? 'up' : 'down'}>{fmtSigned(r.total)}</td>
-                      <td style={{ minWidth: 120 }} className={r.longTerm >= 0 ? 'up' : 'down'}>{formatCurrency(r.longTerm)}</td>
-                      <td style={{ minWidth: 120 }} className={r.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(r.shortTerm)}</td>
+                      <td style={{ minWidth: 140 }} className={r.longTerm >= 0 ? 'up' : 'down'}>{formatCurrency(r.longTerm)}</td>
+                      <td style={{ minWidth: 140 }} className={r.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(r.shortTerm)}</td>
                     </tr>
                   ))}
                   <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
@@ -618,13 +624,13 @@ const RealizedTab = ({ portfolio }) => {
                     <td style={{ minWidth: 380 }}>—</td>
                     <td style={{ minWidth: 120 }}>—</td>
                     <td style={{ minWidth: 70 }}>—</td>
-                    <td style={{ minWidth: 100 }}>—</td>
+                    <td style={{ minWidth: 120 }}>—</td>
                     <td style={{ minWidth: 150 }}>—</td>
                     <td style={{ minWidth: 120 }}>{formatCurrency(totalsRow.proceeds)}</td>
-                    <td style={{ minWidth: 120 }}>{formatCurrency(totalsRow.costBasis)}</td>
+                    <td style={{ minWidth: 140 }}>{formatCurrency(totalsRow.costBasis)}</td>
                     <td style={{ minWidth: 120 }} className={totalsRow.netGain >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.netGain)}</td>
-                    <td style={{ minWidth: 120 }} className={totalsRow.longTerm >= 0 ? 'up' : 'down'}>{formatCurrency(totalsRow.longTerm)}</td>
-                    <td style={{ minWidth: 120 }} className={totalsRow.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.shortTerm)}</td>
+                    <td style={{ minWidth: 140 }} className={totalsRow.longTerm >= 0 ? 'up' : 'down'}>{formatCurrency(totalsRow.longTerm)}</td>
+                    <td style={{ minWidth: 140 }} className={totalsRow.shortTerm >= 0 ? 'up' : 'down'}>{fmtSigned(totalsRow.shortTerm)}</td>
                   </tr>
                 </tbody>
               </table>

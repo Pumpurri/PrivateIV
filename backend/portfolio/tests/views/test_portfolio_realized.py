@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from portfolio.models import RealizedPNL
+from portfolio.models import RealizedPNL, Transaction
 from portfolio.tests.factories import PortfolioFactory, TransactionFactory
 from stocks.tests.factories import StockFactory
 from users.tests.factories import UserFactory
@@ -73,19 +73,20 @@ class TestPortfolioRealizedView:
         symbols = {item['symbol'] for item in response.data['details']}
         assert symbols == {'GAIN'}
 
-    def test_date_filter(self):
+    def test_date_filter_uses_sell_transaction_timestamp(self):
         user = UserFactory()
         portfolio = user.portfolios.first()
         stock = StockFactory(symbol='OLD', current_price=Decimal('100.00'), currency='PEN')
+        old_timestamp = timezone.now() - timezone.timedelta(days=400)
 
         # Old transaction (last year)
-        TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock, quantity=10)
+        old_buy = TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock, quantity=10)
+        Transaction.all_objects.filter(pk=old_buy.pk).update(timestamp=old_timestamp - timezone.timedelta(days=30))
         stock.current_price = Decimal('120.00')
         stock.save()
         old_sell = TransactionFactory(transaction_type='SELL', portfolio=portfolio, stock=stock, quantity=10)
-        RealizedPNL.objects.filter(transaction=old_sell).update(
-            realized_at=timezone.now() - timezone.timedelta(days=400)
-        )
+        Transaction.all_objects.filter(pk=old_sell.pk).update(timestamp=old_timestamp)
+        RealizedPNL.objects.filter(transaction=old_sell).update(realized_at=timezone.now())
 
         # Recent transaction
         stock_recent = StockFactory(symbol='NEW', current_price=Decimal('80.00'), currency='PEN')
@@ -100,6 +101,29 @@ class TestPortfolioRealizedView:
         assert response.status_code == status.HTTP_200_OK
         symbols = {item['symbol'] for item in response.data['details']}
         assert symbols == {'NEW'}
+
+    def test_long_short_uses_buy_timestamp_when_acquisition_date_is_invalid(self):
+        user = UserFactory()
+        portfolio = user.portfolios.first()
+        stock = StockFactory(symbol='LONG', current_price=Decimal('100.00'), currency='PEN')
+        buy_timestamp = timezone.now() - timezone.timedelta(days=500)
+        sell_timestamp = timezone.now()
+
+        buy = TransactionFactory(transaction_type='BUY', portfolio=portfolio, stock=stock, quantity=10)
+        Transaction.all_objects.filter(pk=buy.pk).update(timestamp=buy_timestamp)
+        stock.current_price = Decimal('125.00')
+        stock.save()
+        sell = TransactionFactory(transaction_type='SELL', portfolio=portfolio, stock=stock, quantity=10)
+        Transaction.all_objects.filter(pk=sell.pk).update(timestamp=sell_timestamp)
+        # Simulate an imported/backfilled row where acquisition_date was created after the sale.
+        RealizedPNL.objects.filter(transaction=sell).update(acquisition_date=sell_timestamp + timezone.timedelta(days=1))
+
+        self.client.force_authenticate(user=user)
+        url = reverse('dashboard-portfolio-realized', kwargs={'portfolio_id': portfolio.id})
+        response = self.client.get(url, {'from': sell_timestamp.date().isoformat(), 'to': sell_timestamp.date().isoformat()})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['long_short']['long_term'] == '250.00'
+        assert response.data['long_short']['short_term'] == '0.00'
 
     def test_invalid_range_returns_400(self):
         user = UserFactory()
