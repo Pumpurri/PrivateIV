@@ -1057,15 +1057,15 @@ const RealizedTab = ({ portfolio }) => {
                   }}
                 >
                   <div style={{ fontSize: 12, marginBottom: 6 }}>
-                    <span className="muted">Closed Date:</span>{' '}
+                    <span className="muted">Fecha de cierre:</span>{' '}
                     <span>{formatDateLabel(chartTooltip.point.rawDate)}</span>
                   </div>
                   <div style={{ fontSize: 12, marginBottom: 6 }}>
-                    <span className="muted">Transaction:</span>{' '}
-                    <span>{chartTooltip.point.symbol} Sold {chartTooltip.point.qty}</span>
+                    <span className="muted">Transacción:</span>{' '}
+                    <span>{chartTooltip.point.symbol} Vendido {chartTooltip.point.qty}</span>
                   </div>
                   <div style={{ fontSize: 12 }}>
-                    <span className="muted">Gain:</span>{' '}
+                    <span className="muted">Ganancia/Pérdida:</span>{' '}
                     <span style={{ color: valueColor(chartTooltip.point.total) }}>
                       {fmtTooltipSigned(chartTooltip.point.total, chartTooltip.point.currency)} ({chartTooltip.point.gainPct >= 0 ? '+' : ''}{formatPercent(chartTooltip.point.gainPct)})
                     </span>
