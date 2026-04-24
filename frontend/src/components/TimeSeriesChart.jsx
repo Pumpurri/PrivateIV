@@ -134,19 +134,19 @@ function linearTicks(start, end, count) {
 function formatAxisValue(value, format, currency) {
   if (!Number.isFinite(value)) return '';
   if (format === 'percent') {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat('es-PE', {
       style: 'percent',
       maximumFractionDigits: 1,
       minimumFractionDigits: 0,
     }).format(value / 100);
   }
   if (format === 'number') {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat('es-PE', {
       notation: 'compact',
       maximumFractionDigits: 1,
     }).format(value);
   }
-  const formatter = new Intl.NumberFormat(undefined, {
+  const formatter = new Intl.NumberFormat('es-PE', {
     style: 'currency',
     currency: currency || 'USD',
     notation: 'compact',
@@ -158,19 +158,19 @@ function formatAxisValue(value, format, currency) {
 function formatTooltipValue(value, format, currency) {
   if (!Number.isFinite(value)) return '';
   if (format === 'percent') {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat('es-PE', {
       style: 'percent',
       maximumFractionDigits: 2,
       minimumFractionDigits: 2,
     }).format(value / 100);
   }
   if (format === 'number') {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat('es-PE', {
       maximumFractionDigits: 2,
       minimumFractionDigits: 2,
     }).format(value);
   }
-  const formatter = new Intl.NumberFormat(undefined, {
+  const formatter = new Intl.NumberFormat('es-PE', {
     style: 'currency',
     currency: currency || 'USD',
     maximumFractionDigits: 2,
@@ -183,7 +183,7 @@ function formatTickDate(date, spanMs) {
   if (!date) return '';
   const spanDays = spanMs / DAY_MS;
   if (spanDays <= 2) {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat('es-PE', {
       hour: 'numeric',
       minute: spanDays < 1 ? '2-digit' : undefined,
       day: spanDays < 1 ? undefined : 'numeric',
@@ -191,18 +191,18 @@ function formatTickDate(date, spanMs) {
     }).format(date);
   }
   if (spanDays <= 45) {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat('es-PE', {
       day: 'numeric',
       month: 'short',
     }).format(date);
   }
   if (spanDays <= 370) {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat('es-PE', {
       month: 'short',
       year: 'numeric',
     }).format(date);
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('es-PE', {
     year: 'numeric',
   }).format(date);
 }
@@ -210,7 +210,7 @@ function formatTickDate(date, spanMs) {
 function formatTooltipDate(date, spanMs) {
   if (!date) return '';
   const spanDays = spanMs / DAY_MS;
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('es-PE', {
     dateStyle: 'medium',
     timeStyle: spanDays <= 2 ? 'short' : undefined,
   }).format(date);
@@ -358,16 +358,124 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function buildClosedAreaPath(upperPoints, lowerPoints) {
+  if (!upperPoints.length || !lowerPoints.length) return '';
+  const allPoints = [...upperPoints, ...[...lowerPoints].reverse()];
+  if (allPoints.length < 4) return '';
+  let d = `M${allPoints[0].x},${allPoints[0].y}`;
+  for (let i = 1; i < allPoints.length; i += 1) {
+    d += ` L${allPoints[i].x},${allPoints[i].y}`;
+  }
+  d += ' Z';
+  return d;
+}
+
+function buildConditionalBandPaths(primarySeries, compareSeries, xScale, yScale) {
+  if (!primarySeries?.length || !compareSeries?.length) {
+    return { positive: [], negative: [] };
+  }
+
+  const compareByTs = new Map(compareSeries.map(point => [point.ts, point]));
+  const pairs = primarySeries
+    .map(point => {
+      const comparePoint = compareByTs.get(point.ts);
+      if (!comparePoint) return null;
+      return {
+        ts: point.ts,
+        primaryValue: point.value,
+        compareValue: comparePoint.value,
+        x: xScale(point.ts),
+        primaryY: yScale(point.value),
+        compareY: yScale(comparePoint.value),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.ts - b.ts);
+
+  if (pairs.length < 2) {
+    return { positive: [], negative: [] };
+  }
+
+  const areas = { positive: [], negative: [] };
+  let currentSign = null;
+  let upperPoints = [];
+  let lowerPoints = [];
+
+  const resolveSign = (diff, fallback = 'positive') => {
+    if (diff > 0) return 'positive';
+    if (diff < 0) return 'negative';
+    return fallback;
+  };
+
+  const pushPair = (pair) => {
+    upperPoints.push({ x: pair.x, y: pair.primaryY });
+    lowerPoints.push({ x: pair.x, y: pair.compareY });
+  };
+
+  const flushCurrent = () => {
+    const path = buildClosedAreaPath(upperPoints, lowerPoints);
+    if (path && currentSign) {
+      areas[currentSign].push(path);
+    }
+    upperPoints = [];
+    lowerPoints = [];
+  };
+
+  const firstPair = pairs[0];
+  currentSign = resolveSign(firstPair.primaryValue - firstPair.compareValue);
+  pushPair(firstPair);
+
+  for (let index = 1; index < pairs.length; index += 1) {
+    const previous = pairs[index - 1];
+    const current = pairs[index];
+    const previousDiff = previous.primaryValue - previous.compareValue;
+    const currentDiff = current.primaryValue - current.compareValue;
+    const segmentStartSign = resolveSign(previousDiff, currentSign);
+    const segmentEndSign = resolveSign(currentDiff, segmentStartSign);
+
+    if (segmentEndSign === currentSign) {
+      pushPair(current);
+      continue;
+    }
+
+    const ratio = Math.abs(previousDiff - currentDiff) < 1e-12
+      ? 0.5
+      : previousDiff / (previousDiff - currentDiff);
+    const crossingRatio = clamp(ratio, 0, 1);
+    const crossingX = previous.x + ((current.x - previous.x) * crossingRatio);
+    const crossingPrimaryY = previous.primaryY + ((current.primaryY - previous.primaryY) * crossingRatio);
+    const crossingCompareY = previous.compareY + ((current.compareY - previous.compareY) * crossingRatio);
+    const crossingY = (crossingPrimaryY + crossingCompareY) / 2;
+    const crossingPointUpper = { x: crossingX, y: crossingY };
+    const crossingPointLower = { x: crossingX, y: crossingY };
+
+    upperPoints.push(crossingPointUpper);
+    lowerPoints.push(crossingPointLower);
+    flushCurrent();
+
+    currentSign = segmentEndSign;
+    upperPoints.push(crossingPointUpper);
+    lowerPoints.push(crossingPointLower);
+    pushPair(current);
+  }
+
+  flushCurrent();
+  return areas;
+}
+
 const TimeSeriesChart = ({
   series = [],
   seriesList,
   rangePreset = '6M',
   onRangeChange,
+  showPresetControls = true,
+  fillBetweenSeries = null,
   yFormat = 'currency',
   currency = 'PEN',
   showArea = true,
   smooth = false,
   colors = {},
+  lineWidth = 2,
   height = 260,
   ariaLabel = 'Histórico de balance',
   loading = false,
@@ -416,6 +524,7 @@ const TimeSeriesChart = ({
         label: item.label,
         color: lineColor,
         areaColor,
+        strokeDasharray: item.strokeDasharray || null,
         series: normalized,
       };
     });
@@ -451,7 +560,7 @@ const TimeSeriesChart = ({
   }, [filteredSeries]);
 
   const inner = useMemo(() => {
-    const margin = { top: 24, right: 16, bottom: 32, left: 64 };
+    const margin = { top: 24, right: 56, bottom: 32, left: 16 };
     const w = Math.max(width - margin.left - margin.right, 0);
     const h = Math.max(height - margin.top - margin.bottom, 0);
     return { margin, width: w, height: h };
@@ -496,6 +605,16 @@ const TimeSeriesChart = ({
   }, [startTs, endTs]);
   const hasData = filteredSeries.some(s => s.filtered.length > 0);
   const singlePoint = filteredSeries.some(s => s.filtered.length === 1);
+
+  const conditionalBandPaths = useMemo(() => {
+    if (!fillBetweenSeries || !hasData) return { positive: [], negative: [] };
+    const primary = filteredSeries.find(seriesItem => seriesItem.id === fillBetweenSeries.primaryId);
+    const compare = filteredSeries.find(seriesItem => seriesItem.id === fillBetweenSeries.compareId);
+    if (!primary?.filtered?.length || !compare?.filtered?.length) {
+      return { positive: [], negative: [] };
+    }
+    return buildConditionalBandPaths(primary.filtered, compare.filtered, xScale, yScale);
+  }, [fillBetweenSeries, filteredSeries, hasData, xScale, yScale]);
 
   const gradientId = useMemo(
     () => `chart-gradient-${Math.random().toString(36).slice(2)}`,
@@ -588,22 +707,24 @@ const TimeSeriesChart = ({
       role="img"
       aria-label={ariaLabel}
     >
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div className="row" role="radiogroup" aria-label="Seleccionar rango">
-          {PRESETS.map(preset => (
-            <button
-              key={preset}
-              type="button"
-              className={`btn xs ${rangePreset === preset ? 'primary' : 'ghost'}`}
-              aria-pressed={rangePreset === preset}
-              onClick={() => handlePresetClick(preset)}
-              style={{ minWidth: 48 }}
-            >
-              {preset}
-            </button>
-          ))}
+      {showPresetControls && (
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          <div className="row" role="radiogroup" aria-label="Seleccionar rango">
+            {PRESETS.map(preset => (
+              <button
+                key={preset}
+                type="button"
+                className={`btn xs ${rangePreset === preset ? 'primary' : 'ghost'}`}
+                aria-pressed={rangePreset === preset}
+                onClick={() => handlePresetClick(preset)}
+                style={{ minWidth: 48 }}
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <svg
         ref={svgRef}
@@ -659,9 +780,9 @@ const TimeSeriesChart = ({
                   stroke="var(--border-muted, rgba(148,163,184,.18))"
                 />
                 <text
-                  x={inner.margin.left - 8}
+                  x={inner.margin.left + inner.width + 8}
                   y={y + 4}
-                  textAnchor="end"
+                  textAnchor="start"
                   fontSize="11"
                   fill="var(--muted, #64748b)"
                 >
@@ -673,6 +794,24 @@ const TimeSeriesChart = ({
         </g>
 
         {/* Series */}
+        {hasData && fillBetweenSeries && (
+          <g pointerEvents="none">
+            {conditionalBandPaths.positive.map((path, index) => (
+              <path
+                key={`positive-band-${index}`}
+                d={path}
+                fill={fillBetweenSeries.positiveColor || 'rgba(34,197,94,0.18)'}
+              />
+            ))}
+            {conditionalBandPaths.negative.map((path, index) => (
+              <path
+                key={`negative-band-${index}`}
+                d={path}
+                fill={fillBetweenSeries.negativeColor || 'rgba(239,68,68,0.18)'}
+              />
+            ))}
+          </g>
+        )}
         {hasData && filteredSeries.map(seriesItem => {
           const pts = seriesItem.filtered.map(pt => [xScale(pt.ts), yScale(pt.value)]);
           if (!pts.length) return null;
@@ -694,7 +833,8 @@ const TimeSeriesChart = ({
                 d={linePath}
                 fill="none"
                 stroke={seriesItem.color}
-                strokeWidth={2}
+                strokeWidth={lineWidth}
+                strokeDasharray={seriesItem.strokeDasharray || undefined}
                 vectorEffect="non-scaling-stroke"
               />
             </g>
@@ -814,9 +954,17 @@ TimeSeriesChart.propTypes = {
     series: PropTypes.arrayOf(PropTypes.object),
     color: PropTypes.string,
     areaColor: PropTypes.string,
+    strokeDasharray: PropTypes.string,
   })),
   rangePreset: PropTypes.string,
   onRangeChange: PropTypes.func,
+  showPresetControls: PropTypes.bool,
+  fillBetweenSeries: PropTypes.shape({
+    primaryId: PropTypes.string.isRequired,
+    compareId: PropTypes.string.isRequired,
+    positiveColor: PropTypes.string,
+    negativeColor: PropTypes.string,
+  }),
   yFormat: PropTypes.oneOf(['currency', 'percent', 'number']),
   currency: PropTypes.string,
   showArea: PropTypes.bool,
@@ -825,6 +973,7 @@ TimeSeriesChart.propTypes = {
     line: PropTypes.string,
     area: PropTypes.string,
   }),
+  lineWidth: PropTypes.number,
   height: PropTypes.number,
   ariaLabel: PropTypes.string,
   loading: PropTypes.bool,

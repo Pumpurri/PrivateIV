@@ -5,6 +5,17 @@ from .realized_pnl import RealizedPNL
 from .daily_snapshot import DailyPortfolioSnapshot
 from .performance import PortfolioPerformance
 from .fx_rate import FXRate
+from .benchmark import BenchmarkSeries, BenchmarkPrice
 
 
-__all__ = ['Portfolio', 'Holding', 'Transaction', 'RealizedPNL', 'DailyPortfolioSnapshot', 'PortfolioPerformance', 'FXRate']
+__all__ = [
+    'Portfolio',
+    'Holding',
+    'Transaction',
+    'RealizedPNL',
+    'DailyPortfolioSnapshot',
+    'PortfolioPerformance',
+    'FXRate',
+    'BenchmarkSeries',
+    'BenchmarkPrice',
+]

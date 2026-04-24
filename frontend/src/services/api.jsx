@@ -167,6 +167,11 @@ export const getPortfolioOverviewApi = async (id, params = {}) => {
   return data;
 };
 
+export const getPortfolioBenchmarksApi = async (id, params = {}) => {
+  const { data } = await apiClient.get(`/dashboard/portfolios/${id}/benchmarks/`, { params });
+  return data;
+};
+
 // FX Rates -----------------------------------------------------------------
 export const getFXRates = async () => {
   const { data } = await apiClient.get('/fx-rates/');

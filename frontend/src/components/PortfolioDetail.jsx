@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import { createTransaction, deletePortfolio, getFXRates, getPortfolio, getPortfolioHoldings, getTransactions, updatePortfolio } from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
 
 const BalancesTab = React.lazy(() => import('../tabs/BalancesTab'));
 const PositionsTab = React.lazy(() => import('../tabs/PositionsTab'));
@@ -24,16 +23,9 @@ const tabsList = [
 const PortfolioDetail = () => {
   const navigate = useNavigate();
   const { id, tab } = useParams();
-  const { user } = useAuth();
-  const isAdmin = user?.is_staff || user?.is_superuser;
-
-  // Show all tabs, but mark admin-only tabs
   const visibleTabs = useMemo(() => {
-    return tabsList.map(t => ({
-      ...t,
-      disabled: t.id === 'performance' && !isAdmin
-    }));
-  }, [isAdmin]);
+    return tabsList.map(t => ({ ...t, disabled: false }));
+  }, []);
 
   const tabsSet = useMemo(() => new Set(tabsList.map(t => t.id)), []);
   const initialTab = useMemo(() => {
@@ -73,16 +65,10 @@ const PortfolioDetail = () => {
       return;
     }
 
-    // Redirect non-admin from admin-only tabs
-    if (tab === 'performance' && !isAdmin) {
-      navigate(`/app/portfolios/${id}/balances`, { replace: true });
-      return;
-    }
-
     if (tabsSet.has(tab) && tab !== activeTab) {
       setActiveTab(tab);
     }
-  }, [tab, id, tabsSet, activeTab, navigate, isAdmin]);
+  }, [tab, id, tabsSet, activeTab, navigate]);
 
   // Load real data to avoid mock flicker
   useEffect(() => {
@@ -290,16 +276,17 @@ const PortfolioDetail = () => {
 
         .perf-history-wrapper { overflow: auto; max-width: 100%; }
         .perf-history { width: 100%; border-collapse: separate; border-spacing: 0; }
-        .perf-history th, .perf-history td { padding: 8px 10px; }
+        .perf-history th, .perf-history td { padding: 8px 10px; font-size: 12px; }
         .perf-history thead th { position: sticky; top: 0; background: rgba(255,255,255,.03); backdrop-filter: saturate(110%); }
         .perf-history tbody tr:nth-child(odd) { background: rgba(255,255,255,.02); }
         .perf-history td:not(:first-child), .perf-history th:not(:first-child) { text-align: right; }
         .caret-btn { appearance: none; background: none; border: none; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0; }
         .caret { display: inline-block; transition: transform .2s ease; }
         .caret.open { transform: rotate(90deg); }
-        .perf-child td:first-child { padding-left: 18px; opacity: .95; }
-        .perf-history .perf-parent td:first-child { color: rgba(99,179,237,1); font-weight: 700; }
-        .perf-history .perf-parent td:not(:first-child) { color: #fff; font-weight: 700; }
+        .perf-child td { font-size: 11px; }
+        .perf-child td:first-child { padding-left: 18px; opacity: .88; color: var(--muted); }
+        .perf-history .perf-parent td:first-child { color: rgba(99,179,237,1); font-weight: 600; }
+        .perf-history .perf-parent td:not(:first-child) { color: #fff; font-weight: 500; }
         .portfolio-title { position: relative; cursor: help; display: inline-block; }
         .portfolio-title .portfolio-desc-tip {
           position: absolute;
@@ -865,7 +852,7 @@ const PortfolioDetail = () => {
             {activeTab === 'balances' && <BalancesTab portfolio={portfolio} transactions={transactions} />}
             {activeTab === 'positions' && <PositionsTab portfolio={portfolio} holdings={holdings} summary={holdingsSummary} displayCurrency={displayCurrency} onDisplayCurrencyChange={async (cur) => { setDisplayCurrency(cur); await refreshAll(cur); }} />}
             {activeTab === 'realized' && <RealizedTab portfolio={portfolio} />}
-            {activeTab === 'performance' && isAdmin && <PerformanceTab />}
+            {activeTab === 'performance' && <PerformanceTab portfolio={portfolio} transactions={transactions} />}
             {activeTab === 'history' && <HistoryTab transactions={transactions} />}
             {activeTab === 'trade' && <TradeTab portfolio={portfolio} holdings={holdings} onTransaction={refreshAll} />}
           </React.Suspense>

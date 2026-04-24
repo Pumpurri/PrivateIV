@@ -13,6 +13,7 @@ from portfolio.views import (
     PortfolioSetDefaultView,
     DashboardView,
     PortfolioOverviewView,
+    PortfolioBenchmarkView,
     # FX views
     FXRateView,
     PortfolioRealizedView,
@@ -22,6 +23,7 @@ urlpatterns = [
     # Dashboard endpoints
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('dashboard/portfolios/<int:portfolio_id>/overview/', PortfolioOverviewView.as_view(), name='dashboard-portfolio-overview'),
+    path('dashboard/portfolios/<int:portfolio_id>/benchmarks/', PortfolioBenchmarkView.as_view(), name='dashboard-portfolio-benchmarks'),
     path('dashboard/portfolios/<int:portfolio_id>/realized/', PortfolioRealizedView.as_view(), name='dashboard-portfolio-realized'),
     # Portfolio endpoints
     path('portfolios/', PortfolioListView.as_view(), name='portfolio-list'),
