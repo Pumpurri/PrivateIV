@@ -13,6 +13,7 @@ from .portfolio_views import (
 from .dashboard_views import (
     DashboardView,
     PortfolioOverviewView,
+    PortfolioBenchmarkView,
 )
 from .fx_views import (
     FXRateView,
@@ -30,6 +31,7 @@ __all__ = [
     'PortfolioSetDefaultView',
     'DashboardView',
     'PortfolioOverviewView',
+    'PortfolioBenchmarkView',
     'FXRateView',
     'PortfolioRealizedView',
 ]

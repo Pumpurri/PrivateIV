@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from portfolio.models import DailyPortfolioSnapshot, PortfolioPerformance
+from portfolio.models import DailyPortfolioSnapshot, PortfolioPerformance, BenchmarkSeries, BenchmarkPrice
 from portfolio.tests.factories import HoldingFactory, PortfolioFactory, TransactionFactory
 from stocks.tests.factories import StockFactory
 from users.tests.factories import UserFactory
@@ -169,3 +169,133 @@ class TestPortfolioOverviewView:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+class TestPortfolioBenchmarkView:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.client = APIClient()
+
+    def test_returns_benchmark_returns_for_selected_range(self):
+        user = UserFactory()
+        portfolio = PortfolioFactory(user=user, is_default=False)
+
+        series = BenchmarkSeries.objects.create(
+            code='sp500',
+            name='S&P 500',
+            provider='fmp',
+            provider_symbol='^GSPC',
+            currency='USD',
+        )
+        BenchmarkPrice.objects.create(series=series, date=timezone.datetime(2026, 1, 1).date(), close=Decimal('100.00'))
+        BenchmarkPrice.objects.create(series=series, date=timezone.datetime(2026, 2, 1).date(), close=Decimal('110.00'))
+        BenchmarkPrice.objects.create(series=series, date=timezone.datetime(2026, 3, 1).date(), close=Decimal('120.00'))
+
+        DailyPortfolioSnapshot.objects.create(
+            portfolio=portfolio,
+            date=timezone.datetime(2026, 1, 1).date(),
+            total_value=Decimal('100.00'),
+            cash_balance=Decimal('40.00'),
+            investment_value=Decimal('60.00'),
+            total_deposits=Decimal('0.00'),
+        )
+        DailyPortfolioSnapshot.objects.create(
+            portfolio=portfolio,
+            date=timezone.datetime(2026, 3, 1).date(),
+            total_value=Decimal('140.00'),
+            cash_balance=Decimal('60.00'),
+            investment_value=Decimal('80.00'),
+            total_deposits=Decimal('50.00'),
+        )
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='DEPOSIT',
+            amount=Decimal('50.00'),
+            cash_currency='PEN',
+            timestamp=timezone.make_aware(timezone.datetime(2026, 2, 1, 12, 0, 0)),
+        )
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='WITHDRAWAL',
+            amount=Decimal('10.00'),
+            cash_currency='PEN',
+            timestamp=timezone.make_aware(timezone.datetime(2026, 2, 15, 12, 0, 0)),
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('dashboard-portfolio-benchmarks', kwargs={'portfolio_id': portfolio.id}),
+            {'from': '2026-01-01', 'to': '2026-03-01', 'codes': 'sp500'},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data['portfolio_id'] == portfolio.id
+        assert len(data['benchmarks']) == 1
+        benchmark = data['benchmarks'][0]
+        assert benchmark['code'] == 'sp500'
+        assert Decimal(str(benchmark['cumulative_return_pct'])) == Decimal('20.00')
+        assert Decimal(str(benchmark['annualized_return_pct'])) == Decimal('20.00')
+        assert len(benchmark['series']) == 3
+        assert Decimal(str(benchmark['series'][-1]['return_pct'])) == Decimal('20.00')
+
+        history = data['history']['selected']
+        assert Decimal(str(history['beginning_value'])) == Decimal('100.00')
+        assert Decimal(str(history['beginning_market_value'])) == Decimal('60.00')
+        assert Decimal(str(history['beginning_cash_value'])) == Decimal('40.00')
+        assert Decimal(str(history['deposits'])) == Decimal('50.00')
+        assert Decimal(str(history['withdrawals'])) == Decimal('10.00')
+        assert Decimal(str(history['net_contributions'])) == Decimal('40.00')
+        assert Decimal(str(history['investment_changes'])) == Decimal('0.00')
+        assert Decimal(str(history['ending_value'])) == Decimal('140.00')
+        assert Decimal(str(history['ending_market_value'])) == Decimal('80.00')
+        assert Decimal(str(history['ending_cash_value'])) == Decimal('60.00')
+
+    def test_cannot_access_other_users_benchmarks(self):
+        user = UserFactory()
+        other_user = UserFactory()
+        other_portfolio = other_user.portfolios.get(is_default=True)
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('dashboard-portfolio-benchmarks', kwargs={'portfolio_id': other_portfolio.id}),
+            {'from': '2026-01-01', 'to': '2026-03-01'},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_returns_empty_history_for_one_year_when_portfolio_is_younger_than_one_year(self):
+        user = UserFactory()
+        portfolio = PortfolioFactory(user=user, is_default=False)
+
+        DailyPortfolioSnapshot.objects.create(
+            portfolio=portfolio,
+            date=timezone.datetime(2026, 3, 1).date(),
+            total_value=Decimal('100.00'),
+            cash_balance=Decimal('40.00'),
+            investment_value=Decimal('60.00'),
+            total_deposits=Decimal('0.00'),
+        )
+        DailyPortfolioSnapshot.objects.create(
+            portfolio=portfolio,
+            date=timezone.datetime(2026, 4, 1).date(),
+            total_value=Decimal('110.00'),
+            cash_balance=Decimal('45.00'),
+            investment_value=Decimal('65.00'),
+            total_deposits=Decimal('0.00'),
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('dashboard-portfolio-benchmarks', kwargs={'portfolio_id': portfolio.id}),
+            {'from': '2026-03-01', 'to': '2026-04-01', 'codes': 'sp500'},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        one_year = response.json()['history']['one_year']
+        assert one_year['range']['from'] == '2025-04-24'
+        assert one_year['range']['to'] == '2026-04-24'
+        assert one_year['beginning_value'] is None
+        assert one_year['deposits'] is None
+        assert one_year['ending_value'] is None
