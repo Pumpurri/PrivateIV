@@ -1,17 +1,10 @@
-from .celery import app as celery_app
 import os
+from TradeSimulator.env import env_flag, load_optional_dotenv
 
-# Ensure .env is loaded before checking Datadog flags.
-# Django imports this package (__init__) before TradeSimulator.settings,
-# so load_dotenv here to make DD_* envs available early.
-try:
-    from dotenv import load_dotenv  # type: ignore
-    load_dotenv()
-except Exception:
-    pass
+load_optional_dotenv()
 
 # Optional Datadog APM integration - enabled by DD_TRACE_ENABLED env var
-if os.getenv('DD_TRACE_ENABLED', 'false').lower() == 'true':
+if env_flag('DD_TRACE_ENABLED', default=False):
     try:
         from ddtrace import patch_all  # type: ignore
         # Auto-instrument Django, DRF, Celery, psycopg2
@@ -19,5 +12,7 @@ if os.getenv('DD_TRACE_ENABLED', 'false').lower() == 'true':
     except Exception:
         # ddtrace not installed or failed to init; continue without tracing
         pass
+
+from .celery import app as celery_app
 
 __all__ = ('celery_app',)

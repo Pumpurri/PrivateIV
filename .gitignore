@@ -13,6 +13,8 @@ db.sqlite3
 media/
 staticfiles/
 .env
+certs/
+backend/.certs/
 
 # IDEs
 .vscode/

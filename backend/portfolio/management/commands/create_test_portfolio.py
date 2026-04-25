@@ -2,7 +2,7 @@
 Create a large local portfolio dataset for UI behavior testing.
 
 Usage:
-    python manage.py create_test_portfolio --username=sjjs0805@gmail.com
+    python manage.py create_test_portfolio --username=user@example.com
 """
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -51,7 +51,7 @@ class Command(BaseCommand):
     ]
 
     def add_arguments(self, parser):
-        parser.add_argument("--username", default="sjjs0805@gmail.com", help="User email to populate.")
+        parser.add_argument("--username", required=True, help="User email to populate.")
         parser.add_argument("--portfolio-name", default="UI Stress Portfolio", help="Portfolio name.")
         parser.add_argument("--days", type=int, default=900, help="Number of historical days.")
         parser.add_argument("--transactions", type=int, default=850, help="Target transaction count.")

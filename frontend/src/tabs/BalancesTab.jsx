@@ -197,11 +197,9 @@ const BalancesTab = ({ portfolio, transactions = [] }) => {
   const handleRangeChange = async ({ preset }) => {
     if (!preset || !portfolio?.id) return;
 
-    console.log('Range change requested:', preset);
     setRangePreset(preset);
 
     const days = computeDaysForPreset(preset, snapshots);
-    console.log('Fetching snapshots for preset:', preset, 'days:', days);
 
     // Fetch data for the new range
     setOverviewLoading(true);
@@ -209,7 +207,6 @@ const BalancesTab = ({ portfolio, transactions = [] }) => {
       const data = await getPortfolioOverviewApi(portfolio.id, { days });
       const snaps = Array.isArray(data?.snapshots) ? data.snapshots : [];
       setSnapshots(snaps);
-      console.log('Received', snaps.length, 'snapshots for', days, 'days');
 
       // Update day change if available
       const dAbs = Number(data?.portfolio?.day_change_abs ?? 0);

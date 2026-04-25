@@ -1,9 +1,9 @@
 import os
 from celery import Celery
-from dotenv import load_dotenv
 from celery.schedules import crontab
+from TradeSimulator.env import load_optional_dotenv
 
-load_dotenv()
+load_optional_dotenv()
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'TradeSimulator.settings')
 

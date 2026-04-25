@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-testing-only')
+
 from .settings import *
 
 # Test database configuration
@@ -38,8 +42,14 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 LOGGING_CONFIG = None
 
 # Test-specific settings
-SECRET_KEY = 'test-secret-key-for-testing-only'
 DEBUG = False
+SECURE_SSL_REDIRECT = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
+SECURE_PROXY_SSL_HEADER = None
+CSRF_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = False
 
 # Speed up password hashing in tests
 PASSWORD_HASHERS = [
