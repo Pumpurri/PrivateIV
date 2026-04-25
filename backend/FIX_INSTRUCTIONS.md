@@ -117,7 +117,7 @@ Daily Variation: PEN 0.66 (+0.01%)  ← CORRECT
 
 ## Transaction Verification
 
-User sjjs0805@gmail.com transactions:
+Example user transactions:
 1. **DEPOSIT**: +10,000.00 PEN
 2. **BUY 1 AMZN**: 221.09 USD × 3.4080 = -753.47 PEN
 3. **BUY 2 AMZN**: 442.18 USD × 3.4080 = -1,506.95 PEN
@@ -126,16 +126,11 @@ User sjjs0805@gmail.com transactions:
 
 ## Testing
 
-To verify the fix is working, you can check the database directly:
+To verify the fix is working, run the backend test suite:
 
 ```bash
-python analyze_cash_discrepancy.py
+backend/venv/bin/python -m pytest -q
 ```
-
-This will show:
-- Calculated cash using the old method: S/. 10,000.00
-- Calculated cash using the new method: S/. 7,739.58
-- Actual portfolio cash balance: S/. 7,739.58
 
 ## Additional Notes
 

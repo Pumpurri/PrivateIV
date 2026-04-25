@@ -18,6 +18,7 @@ from portfolio.services.currency_service import (
     get_transaction_amount_in_currency,
     normalize_currency,
 )
+from stocks.market import get_market_date
 
 
 def _parse_iso_date_param(value):
@@ -46,6 +47,12 @@ def _subtract_months(date_value, months):
         year -= 1
     day = min(date_value.day, monthrange(year, month)[1])
     return date_value.replace(year=year, month=month, day=day)
+
+
+def _dashboard_today():
+    # Anchor dashboard "today" to the U.S. market date so range and live-value
+    # calculations stay stable for users outside UTC late in the day.
+    return get_market_date(currency='USD')
 
 
 def _build_portfolio_twr_payload(portfolio, display_currency, from_date, to_date):
@@ -256,7 +263,7 @@ def _build_history_payload(portfolio, display_currency, selected_from, selected_
         .first()
     )
 
-    today = timezone.now().date()
+    today = _dashboard_today()
     latest_available = max(latest_snapshot or today, today)
     earliest_available = earliest_snapshot or portfolio.created_at.date() or latest_available
 
@@ -308,6 +315,13 @@ def _resolve_display_currency(request, portfolio):
 
 
 def _calculate_cash_flow_totals(portfolio, display_currency):
+    perf = getattr(portfolio, 'performance', None)
+    if perf is not None:
+        return (
+            _convert_from_base(perf.total_deposits or Decimal('0.00'), portfolio, display_currency),
+            _convert_from_base(perf.total_withdrawals or Decimal('0.00'), portfolio, display_currency),
+        )
+
     deposits = Decimal('0.00')
     withdrawals = Decimal('0.00')
 

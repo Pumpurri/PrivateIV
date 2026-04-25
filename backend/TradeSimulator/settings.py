@@ -1,15 +1,23 @@
 from pathlib import Path
-from dotenv import load_dotenv
 import os
+from TradeSimulator.env import env_flag, load_optional_dotenv
 
-load_dotenv()
+# Local dotenv loading is explicit opt-in to avoid accidentally pulling dev secrets into
+# release or hosted environments. Use DJANGO_LOAD_DOTENV=true for local-only workflows.
+load_optional_dotenv()
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Security
 SECRET_KEY = os.getenv('SECRET_KEY')
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is not set. "
+        "Set it in your host environment or in a local .env file (never commit .env)."
+    )
+
+DEBUG = env_flag('DEBUG', default=False)
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 INSTALLED_APPS = [

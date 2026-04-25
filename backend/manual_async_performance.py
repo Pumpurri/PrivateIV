@@ -1,12 +1,14 @@
 """
-Performance test: Sequential vs Async API calls
-Tests fetching stock prices from FMP API using both methods
+Manual performance script: compare sequential and async FMP API calls.
+
+This is intentionally not a pytest test module.
 """
+import asyncio
 import os
 import time
-import asyncio
-import requests
+
 import aiohttp
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,11 +26,11 @@ API_KEY = os.getenv('FMP_API')
 if not API_KEY:
     print("ERROR: FMP_API environment variable not found!")
     print("Make sure you have a .env file with FMP_API=your_key")
-    exit(1)
+    raise SystemExit(1)
 
 
 def fetch_sequential():
-    """Current implementation - sequential requests"""
+    """Current implementation - sequential requests."""
     print("\n=== SEQUENTIAL (Current Method) ===")
     start = time.time()
 
@@ -44,8 +46,8 @@ def fetch_sequential():
             results.append(data)
             batch_time = time.time() - batch_start
             print(f"  Batch {i}: {batch_time:.3f}s ({len(data)} stocks)")
-        except requests.exceptions.RequestException as e:
-            print(f"  Batch {i}: ERROR - {e}")
+        except requests.exceptions.RequestException as exc:
+            print(f"  Batch {i}: ERROR - {exc}")
 
     total_time = time.time() - start
     print(f"  TOTAL: {total_time:.3f}s")
@@ -53,7 +55,7 @@ def fetch_sequential():
 
 
 async def fetch_batch_async(session, symbols, batch_num):
-    """Fetch a single batch asynchronously"""
+    """Fetch a single batch asynchronously."""
     url = f'https://financialmodelingprep.com/api/v3/quote/{symbols}/?apikey={API_KEY}'
 
     batch_start = time.time()
@@ -64,13 +66,13 @@ async def fetch_batch_async(session, symbols, batch_num):
             batch_time = time.time() - batch_start
             print(f"  Batch {batch_num}: {batch_time:.3f}s ({len(data)} stocks)")
             return data
-    except Exception as e:
-        print(f"  Batch {batch_num}: ERROR - {e}")
+    except Exception as exc:
+        print(f"  Batch {batch_num}: ERROR - {exc}")
         return None
 
 
 async def fetch_async():
-    """Async implementation - parallel requests"""
+    """Async implementation - parallel requests."""
     print("\n=== ASYNC (Parallel Method) ===")
     start = time.time()
 
@@ -79,7 +81,6 @@ async def fetch_async():
             fetch_batch_async(session, symbols, i)
             for i, symbols in enumerate(BATCHES, 1)
         ]
-        # All requests fire at once!
         results = await asyncio.gather(*tasks)
 
     total_time = time.time() - start
@@ -88,32 +89,28 @@ async def fetch_async():
 
 
 def main():
-    print("="*60)
+    print("=" * 60)
     print("Stock Price Fetch Performance Test")
-    print("="*60)
-    print(f"API: Financial Modeling Prep")
+    print("=" * 60)
+    print("API: Financial Modeling Prep")
     print(f"Batches: {len(BATCHES)}")
-    print(f"Total stocks: ~80")
+    print("Total stocks: ~80")
 
-    # Test sequential
-    seq_time, seq_results = fetch_sequential()
+    seq_time, _ = fetch_sequential()
 
-    # Wait a bit to avoid rate limiting
     print("\nWaiting 2 seconds before async test...")
     time.sleep(2)
 
-    # Test async
-    async_time, async_results = asyncio.run(fetch_async())
+    async_time, _ = asyncio.run(fetch_async())
 
-    # Results
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RESULTS")
-    print("="*60)
+    print("=" * 60)
     print(f"Sequential: {seq_time:.3f}s")
     print(f"Async:      {async_time:.3f}s")
-    print(f"Speedup:    {seq_time/async_time:.2f}x faster")
-    print(f"Saved:      {seq_time - async_time:.3f}s ({(1 - async_time/seq_time)*100:.1f}% reduction)")
-    print("="*60)
+    print(f"Speedup:    {seq_time / async_time:.2f}x faster")
+    print(f"Saved:      {seq_time - async_time:.3f}s ({(1 - async_time / seq_time) * 100:.1f}% reduction)")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

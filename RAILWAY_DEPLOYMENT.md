@@ -222,6 +222,23 @@ In Django service logs, you should see:
 [INFO] celery@worker ready
 ```
 
+### 5. Run The Post-Deploy Smoke Test
+
+Use the repo's operational smoke command once web, worker, and beat are up:
+
+```bash
+railway run python manage.py ops_smoke_test --benchmark-mode live
+```
+
+This checks:
+- `healthz` responds cleanly
+- no unapplied migrations remain
+- a Celery worker responds to ping
+- required beat schedules are synced and enabled
+- auth + portfolio + trading flow succeeds end-to-end
+- snapshot generation works
+- benchmark ingest works against the live provider
+
 ---
 
 ## 🐛 Troubleshooting

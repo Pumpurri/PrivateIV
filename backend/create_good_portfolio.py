@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Create a realistic portfolio with COHERENT data where everything makes sense.
+Create a realistic portfolio with coherent data where everything makes sense.
 
 Key principles:
 1. Graph goes UP -> portfolio has GAINS
@@ -10,6 +10,7 @@ Key principles:
 5. Total value = cash + current holdings value
 6. Snapshots accurately reflect transaction history
 """
+import argparse
 import os
 import django
 import sys
@@ -30,15 +31,21 @@ from portfolio.services.snapshot_service import SnapshotService
 
 User = get_user_model()
 
-def create_good_portfolio():
-    """Create portfolio with realistic, coherent data"""
+def parse_args():
+    parser = argparse.ArgumentParser(description="Create a realistic portfolio for a specific user.")
+    parser.add_argument("--email", required=True, help="User email to populate.")
+    return parser.parse_args()
+
+
+def create_good_portfolio(email):
+    """Create portfolio with realistic, coherent data."""
 
     print("🎯 Creating portfolio with GOOD, realistic data...\n")
 
     # Get user
-    user = User.objects.filter(email='sjjs0805@gmail.com').first()
+    user = User.objects.filter(email__iexact=email).first()
     if not user:
-        print("❌ User sjjs0805@gmail.com not found!")
+        print(f"❌ User {email} not found!")
         return
 
     print(f"✅ Using user: {user.email}")
@@ -317,4 +324,5 @@ def update_stock_price(stock, price):
     stock.save()
 
 if __name__ == '__main__':
-    create_good_portfolio()
+    args = parse_args()
+    create_good_portfolio(args.email)
