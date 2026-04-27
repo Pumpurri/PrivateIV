@@ -1,8 +1,6 @@
 from celery import shared_task
 from datetime import datetime, timezone as datetime_timezone
 import logging
-from math import ceil
-
 from django.utils import timezone
 
 from .market import get_market_date, previous_business_day
@@ -97,17 +95,33 @@ COMPANIES = [
     {'symbol': 'SCHW', 'name': 'Charles Schwab Corp.'},
 ]
 
-FMP_FREE_PLAN_SYMBOLS = [
-    'AAPL', 'TSLA', 'AMZN', 'MSFT', 'NVDA', 'GOOGL', 'META', 'NFLX', 'JPM', 'V',
-    'BAC', 'PYPL', 'DIS', 'T', 'PFE', 'COST', 'INTC', 'KO', 'TGT', 'NKE',
-    'SPY', 'BA', 'BABA', 'XOM', 'WMT', 'GE', 'CSCO', 'VZ', 'JNJ', 'CVX',
-    'PLTR', 'SQ', 'SHOP', 'SBUX', 'SOFI', 'HOOD', 'RBLX', 'SNAP', 'AMD', 'UBER',
-    'FDX', 'ABBV', 'ETSY', 'MRNA', 'LMT', 'GM', 'F', 'LCID', 'CCL', 'DAL',
-    'UAL', 'AAL', 'TSM', 'SONY', 'ET', 'MRO', 'COIN', 'RIVN', 'RIOT', 'CPRX',
-    'VWO', 'SPYG', 'NOK', 'ROKU', 'VIAC', 'ATVI', 'BIDU', 'DOCU', 'ZM', 'PINS',
-    'TLRY', 'WBA', 'MGM', 'NIO', 'C', 'GS', 'WFC', 'ADBE', 'PEP', 'UNH',
-    'CARR', 'HCA', 'TWTR', 'BILI', 'SIRI', 'FUBO', 'RKT',
-]
+FMP_FREE_PLAN_SYMBOLS = (
+    # Core stocks already in rotation.
+    'AAPL TSLA AMZN MSFT NVDA GOOGL META NFLX JPM V '
+    'BAC PYPL DIS T PFE COST INTC KO TGT NKE '
+    'SPY BA BABA XOM WMT GE CSCO VZ JNJ CVX '
+    'PLTR SQ SHOP SBUX SOFI HOOD RBLX SNAP AMD UBER '
+    'FDX ABBV ETSY MRNA LMT GM F LCID CCL DAL '
+    'UAL AAL TSM SONY ET MRO COIN RIVN RIOT CPRX '
+    'VWO SPYG NOK ROKU VIAC ATVI BIDU DOCU ZM PINS '
+    'TLRY WBA MGM NIO C GS WFC ADBE PEP UNH '
+    'CARR HCA TWTR BILI SIRI FUBO RKT'.split()
+    # Broad-market, sector, income, bond, commodity, and international ETFs.
+    + 'VOO IVV QQQ QQQM DIA IWM VTI ITOT SCHB VT VXUS IXUS VEA IEFA EEM IEMG '
+      'BND AGG BNDX TLT IEF SHY TIP LQD HYG JNK MUB SGOV BIL SHV VGSH VGIT VGLT '
+      'VCSH VCIT SCHD VYM DGRO HDV NOBL VIG FDVV JEPI JEPQ SCHG VUG MGK IWF IWD '
+      'VO VB SCHA VTWO XLK XLF XLV XLE XLI XLU XLP XLY XLB XLRE XLC XBI IBB '
+      'SMH SOXX ARKK ARKG ARKW ARKF KWEB EWZ EWG EWJ FXI INDA ARGT URA GLD IAU SLV '
+      'USO UNG DBA VNQ SCHH REM'.split()
+    # Mutual funds and index funds users are likely to search for.
+    + 'SWPPX FXAIX VFIAX VTSAX VTIAX SWTSX SWISX VINIX FSKAX FNILX FZROX PRNHX'.split()
+    # Additional single-name stocks to bring the tracked universe near the FMP allowance.
+    + 'AXP CAT DE UNP RTX NOC GD COP EOG SLB OXY KMI MPC PSX DVN HAL O PLD AMT CCI '
+      'SPG EQIX DLR WELL PSA APD LIN ECL SHW FCX NUE STLD MOS CF AEM NEM GOLD KGC '
+      'LOW MCD CMG YUM DPZ MAR HLT BKNG ABNB EXPE RCL NCLH WYNN LVS CZR BLK BX KKR '
+      'SPGI MCO ICE CME USB PNC TROW COF AIG MET PRU CB ALL TRV ABT MDT BMY GILD '
+      'AMGN REGN ISRG BSX SYK TMO DHR CVS CI HUM ELV ZTS PANW'.split()
+)
 
 # Keep the full tracked universe above so enabling the paid tier is a one-line change.
 USE_FMP_FREE_PLAN_SYMBOLS_ONLY = True
@@ -126,14 +140,6 @@ ACTIVE_COMPANIES = (
 # Backward-compatible aliases used by older tests/imports.
 companies = COMPANIES
 active_companies = ACTIVE_COMPANIES
-
-
-def batch_companies(companies, batch_size=20):
-    """
-    Divide the list of companies into batches of a specified size.
-    """
-    num_batches = ceil(len(companies) / batch_size)
-    return [companies[i*batch_size: (i+1)*batch_size] for i in range(num_batches)]
 
 
 def _coerce_quote_timestamp(value):
