@@ -156,7 +156,7 @@
     "expires": null,
     "expire_seconds": null,
     "crontab": {
-      "minute": "0,15,30,45",
+      "minute": "0,10,20,30,40,50",
       "hour": "10-15",
       "day_of_week": "1-5",
       "day_of_month": "*",

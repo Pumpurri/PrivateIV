@@ -27,7 +27,7 @@
   "model": "django_celery_beat.crontabschedule",
   "pk": 3,
   "fields": {
-    "minute": "0,15,30,45",
+    "minute": "0,10,20,30,40,50",
     "hour": "10-15",
     "day_of_month": "*",
     "month_of_year": "*",
