@@ -79,7 +79,14 @@ class Holding(models.Model):
             fx_date, session = get_current_fx_context()
 
             # Use mid rate (average of compra/venta) for current valuation
-            fx = get_fx_rate(fx_date, self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
+            fx = get_fx_rate(
+                fx_date,
+                self.portfolio.base_currency,
+                self.stock.currency,
+                rate_type='mid',
+                session=session,
+                require_rate=True,
+            )
             return (native_value * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
         return native_value
@@ -96,7 +103,14 @@ class Holding(models.Model):
         # Convert current price to portfolio base currency if needed
         if self.stock.currency and self.stock.currency != self.portfolio.base_currency:
             fx_date, session = get_current_fx_context()
-            fx = get_fx_rate(fx_date, self.portfolio.base_currency, self.stock.currency, rate_type='mid', session=session)
+            fx = get_fx_rate(
+                fx_date,
+                self.portfolio.base_currency,
+                self.stock.currency,
+                rate_type='mid',
+                session=session,
+                require_rate=True,
+            )
             price_base = (price * fx).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         else:
             price_base = price

@@ -172,20 +172,10 @@ VITE_API_URL=https://your-django-service.up.railway.app
 Railway should auto-detect Vite, but if not:
 
 - **Build Command**: `npm run build`
-- **Start Command**: `npm run preview` (or use a static server)
+- **Start Command**: `npm start`
 
-Better option - use a static server:
-
-1. Add to `frontend/package.json`:
-```json
-{
-  "scripts": {
-    "start": "npx serve dist -s -p $PORT"
-  }
-}
-```
-
-2. Start Command: `npm start`
+The repo already includes a production `start` script for Railway:
+`vite preview --host 0.0.0.0 --port ${PORT:-4173}`
 
 ---
 

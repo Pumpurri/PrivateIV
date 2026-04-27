@@ -2,6 +2,7 @@ import pytest
 from datetime import date
 from decimal import Decimal
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from portfolio.models import FXRate
 from portfolio.services import SnapshotService
@@ -13,6 +14,15 @@ from datetime import timedelta
 @pytest.mark.django_db
 class TestSnapshotService:
     def test_snapshot_creation(self, portfolio):
+        snapshot_date = timezone.now().date()
+        FXRate.objects.create(
+            date=snapshot_date,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.75'),
+            rate_type='mid',
+            session='cierre',
+        )
         snapshot = SnapshotService.create_daily_snapshot(portfolio)
         assert snapshot.total_value == portfolio.total_value
         assert snapshot.cash_balance == portfolio.cash_balance
@@ -20,6 +30,15 @@ class TestSnapshotService:
 
     def test_multiple_day_snapshots(self, portfolio):
         dates = [timezone.now() - timedelta(days=i) for i in range(3)]
+        for day in dates:
+            FXRate.objects.create(
+                date=day.date(),
+                base_currency='PEN',
+                quote_currency='USD',
+                rate=Decimal('3.75'),
+                rate_type='mid',
+                session='cierre',
+            )
         for day in dates:
             SnapshotService.create_daily_snapshot(portfolio, date=day.date())
         
@@ -106,3 +125,31 @@ class TestSnapshotService:
         historical_cash = SnapshotService._get_historical_cash(portfolio, snapshot_day)
 
         assert historical_cash == Decimal('400.00')
+
+    def test_historical_cash_uses_prior_fx_rate_when_snapshot_date_lacks_one(self, portfolio):
+        portfolio = PortfolioFactory(user=portfolio.user, is_default=False)
+        deposit_day = date(2026, 4, 17)
+        future_snapshot_day = date(2026, 4, 18)
+
+        FXRate.objects.create(
+            date=deposit_day,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.50'),
+            rate_type='mid',
+            session='cierre',
+        )
+
+        deposit = TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('100.00'),
+            cash_currency='USD',
+        )
+        Transaction.all_objects.filter(pk=deposit.pk).update(
+            timestamp=timezone.make_aware(timezone.datetime(2026, 4, 17, 12, 0, 0))
+        )
+
+        historical_cash = SnapshotService._get_historical_cash(portfolio, future_snapshot_day)
+
+        assert historical_cash == Decimal('350.00')

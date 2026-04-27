@@ -1,9 +1,11 @@
 import pytest
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from portfolio.models import Portfolio, Transaction
 from portfolio.services.snapshot_service import SnapshotService
+from portfolio.services.currency_service import convert_amount
 from portfolio.models.fx_rate import FXRate
 from stocks.models import Stock
 from portfolio.models import Holding
@@ -65,3 +67,48 @@ def test_fx_fallback_uses_prior_rate(user_factory, set_fx_market_now):
     # Expect conversion using prior rate: 20 * 4 = 80
     assert snap.investment_value == Decimal('80.00')
     assert snap.total_value == snap.investment_value + snap.cash_balance
+
+
+@pytest.mark.django_db
+def test_convert_amount_requires_real_fx_rate_by_default():
+    today = timezone.now().date()
+
+    with pytest.raises(ValidationError, match="Missing FX rate"):
+        convert_amount(
+            Decimal('10.00'),
+            'USD',
+            'PEN',
+            snapshot_date=today,
+            session='cierre',
+        )
+
+
+@pytest.mark.django_db
+def test_convert_amount_can_opt_into_legacy_missing_rate_fallback():
+    today = timezone.now().date()
+
+    converted = convert_amount(
+        Decimal('10.00'),
+        'USD',
+        'PEN',
+        snapshot_date=today,
+        session='cierre',
+        require_rate=False,
+    )
+
+    assert converted == Decimal('10.00')
+
+
+@pytest.mark.django_db
+def test_convert_amount_zero_does_not_require_fx_rate():
+    today = timezone.now().date()
+
+    converted = convert_amount(
+        Decimal('0.00'),
+        'USD',
+        'PEN',
+        snapshot_date=today,
+        session='cierre',
+    )
+
+    assert converted == Decimal('0.00')

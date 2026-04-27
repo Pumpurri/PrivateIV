@@ -4,9 +4,11 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
+from users.tests.factories import UserFactory
 from portfolio.tests.factories import TransactionFactory, PortfolioFactory
 from portfolio.models import RealizedPNL, FXRate, Transaction
 from portfolio.services.transaction_service import TransactionService
+from stocks.models import Stock
 
 @pytest.mark.django_db
 class TestTransactionProcessor:
@@ -64,6 +66,51 @@ class TestTransactionPNLHandling:
 
         portfolio.performance.refresh_from_db()
         assert portfolio.performance.total_deposits == initial_deposits + deposit.amount
+
+    def test_pen_deposit_does_not_require_or_store_fx_rate(self, portfolio):
+        deposit = TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='DEPOSIT',
+            amount=Decimal('250.00'),
+            cash_currency='PEN',
+        )
+
+        assert deposit.fx_rate is None
+        assert deposit.fx_rate_type is None
+
+        portfolio.performance.refresh_from_db()
+        assert portfolio.performance.total_deposits >= Decimal('250.00')
+
+    def test_same_currency_usd_buy_requires_real_mid_fx_rate(self):
+        user = UserFactory()
+        portfolio = user.portfolios.get(is_default=True)
+        portfolio.cash_balance_usd = Decimal('1000.00')
+        portfolio.save(update_fields=['cash_balance_usd'])
+
+        stock = Stock.objects.create(
+            symbol='USDMID',
+            name='USD Mid Required',
+            currency='USD',
+            current_price=Decimal('10.00'),
+        )
+
+        with pytest.raises(ValidationError, match="Missing FX rate"):
+            TransactionService.execute_transaction({
+                'portfolio': portfolio,
+                'transaction_type': Transaction.TransactionType.BUY,
+                'stock': stock,
+                'quantity': 1,
+                'cash_currency': 'USD',
+            })
+
+        portfolio.refresh_from_db()
+        assert portfolio.cash_balance_usd == Decimal('1000.00')
+        assert not portfolio.holdings.filter(stock=stock).exists()
+        assert not Transaction.all_objects.filter(
+            portfolio=portfolio,
+            stock=stock,
+            transaction_type=Transaction.TransactionType.BUY,
+        ).exists()
 
     def test_service_generates_idempotency_key_when_absent(self, portfolio):
         transaction = TransactionService.execute_transaction({

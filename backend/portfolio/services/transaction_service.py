@@ -208,8 +208,7 @@ class TransactionService:
         amount = cls._validate_amount(transaction.amount)
         portfolio = transaction.portfolio
         cash_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
-        fx_date, session = get_current_fx_context()
-        mid_rate = cls._get_mid_pen_per_usd_rate(fx_date, session)
+        pen_per_usd_rate, fx_rate_type = cls._get_pen_per_usd_rate_for_pen_cash_flow(cash_currency)
         
         # Ensure performance record exists
         performance, _ = PortfolioPerformance.objects.get_or_create(
@@ -218,11 +217,11 @@ class TransactionService:
         
         with span("transaction.deposit", resource=str(portfolio.id), tags={"amount": str(amount)}):
             portfolio.adjust_cash(amount, currency=cash_currency)
-        performance.total_deposits += cls._convert_original_to_pen_amount(amount, cash_currency, mid_rate)
+        performance.total_deposits += cls._convert_original_to_pen_amount(amount, cash_currency, pen_per_usd_rate)
         performance.save(update_fields=['total_deposits'])
         transaction.cash_currency = cash_currency
-        transaction.fx_rate = mid_rate
-        transaction.fx_rate_type = 'mid'
+        transaction.fx_rate = pen_per_usd_rate if fx_rate_type else None
+        transaction.fx_rate_type = fx_rate_type
         transaction.executed_price = None
 
     @classmethod
@@ -230,8 +229,7 @@ class TransactionService:
         amount = cls._validate_amount(transaction.amount)
         portfolio = transaction.portfolio
         cash_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
-        fx_date, session = get_current_fx_context()
-        mid_rate = cls._get_mid_pen_per_usd_rate(fx_date, session)
+        pen_per_usd_rate, fx_rate_type = cls._get_pen_per_usd_rate_for_pen_cash_flow(cash_currency)
         
         # Ensure performance record exists
         performance, _ = PortfolioPerformance.objects.get_or_create(
@@ -240,11 +238,11 @@ class TransactionService:
         
         with span("transaction.withdrawal", resource=str(portfolio.id), tags={"amount": str(amount)}):
             portfolio.adjust_cash(-amount, currency=cash_currency)
-        performance.total_withdrawals += cls._convert_original_to_pen_amount(amount, cash_currency, mid_rate)
+        performance.total_withdrawals += cls._convert_original_to_pen_amount(amount, cash_currency, pen_per_usd_rate)
         performance.save(update_fields=['total_withdrawals'])
         transaction.cash_currency = cash_currency
-        transaction.fx_rate = mid_rate
-        transaction.fx_rate_type = 'mid'
+        transaction.fx_rate = pen_per_usd_rate if fx_rate_type else None
+        transaction.fx_rate_type = fx_rate_type
         transaction.executed_price = None
 
     @classmethod
@@ -330,7 +328,17 @@ class TransactionService:
             'USD',
             rate_type='mid',
             session=session,
+            require_rate=True,
         )
+
+    @classmethod
+    def _get_pen_per_usd_rate_for_pen_cash_flow(cls, currency):
+        currency = normalize_currency(currency)
+        if currency == 'PEN':
+            return Decimal('1'), None
+
+        fx_date, session = get_current_fx_context()
+        return cls._get_mid_pen_per_usd_rate(fx_date, session), 'mid'
 
     @classmethod
     def _get_pen_per_usd_rate_for_settlement(cls, *, fx_date, session, original_currency, settlement_currency, trade_direction):
@@ -338,6 +346,8 @@ class TransactionService:
         settlement_currency = normalize_currency(settlement_currency)
 
         if original_currency == settlement_currency:
+            if original_currency == 'PEN':
+                return Decimal('1'), None
             return cls._get_mid_pen_per_usd_rate(fx_date, session), 'mid'
 
         if original_currency == 'USD' and settlement_currency == 'PEN':

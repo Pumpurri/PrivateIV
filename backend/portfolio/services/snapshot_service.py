@@ -1,5 +1,6 @@
 # backend/portfolio/services/snapshot_service.py
 from django.db import models, IntegrityError, transaction
+from django.core.exceptions import ValidationError
 import time
 from decimal import Decimal, DivisionByZero, ROUND_HALF_UP
 import logging
@@ -31,6 +32,7 @@ class SnapshotService:
                 portfolio.base_currency,
                 snapshot_date=snapshot_date,
                 session='cierre',
+                require_rate=True,
             )
             + convert_amount(
                 wallets['USD'],
@@ -38,6 +40,7 @@ class SnapshotService:
                 portfolio.base_currency,
                 snapshot_date=snapshot_date,
                 session='cierre',
+                require_rate=True,
             )
         )
 
@@ -91,6 +94,8 @@ class SnapshotService:
 
             return cls._wallets_to_base(portfolio, wallets, snapshot_date)
 
+        except ValidationError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching historical cash for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
             import traceback
@@ -114,6 +119,8 @@ class SnapshotService:
                     snapshot_date=txn.timestamp.date(),
                 )
             return cls._quantize_money(total)
+        except ValidationError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching historical deposits for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
             return Decimal('0.00')
@@ -311,7 +318,8 @@ class SnapshotService:
                         locked_portfolio.base_currency,
                         stock.currency,
                         rate_type='mid',
-                        session='cierre'
+                        session='cierre',
+                        require_rate=True,
                     )
                     stock_value_base = (native_value * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     investment_value += stock_value_base
