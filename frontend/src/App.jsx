@@ -1,4 +1,6 @@
 import React from 'react';
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import PublicRoute from "./routes/PublicRoute";
@@ -40,6 +42,8 @@ function App() {
                             </Route>
                         </Route>
                     </Routes>
+                    <Analytics />
+                    <SpeedInsights />
                 </StockPriceProvider>
             </AuthProvider>
         </Router>

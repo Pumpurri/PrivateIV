@@ -164,7 +164,7 @@ celery -A TradeSimulator beat --loglevel=info --scheduler django_celery_beat.sch
 ### B. Environment Variables
 
 ```env
-VITE_API_URL=https://your-django-service.up.railway.app
+VITE_API_URL=https://your-django-service.up.railway.app/api
 ```
 
 ### C. Build & Start Commands
