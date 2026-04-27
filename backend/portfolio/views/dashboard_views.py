@@ -208,7 +208,7 @@ def _build_history_range_breakdown(portfolio, display_currency, from_date, to_da
     for txn in (
         Transaction.objects.filter(
             portfolio=portfolio,
-            timestamp__date__gte=snapshot_rows[0]['date'],
+            timestamp__date__gt=snapshot_rows[0]['date'],
             timestamp__date__lte=snapshot_rows[-1]['date'],
             transaction_type__in=[
                 Transaction.TransactionType.DEPOSIT,

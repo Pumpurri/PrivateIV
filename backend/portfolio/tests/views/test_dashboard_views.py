@@ -299,3 +299,38 @@ class TestPortfolioBenchmarkView:
         assert one_year['beginning_value'] is None
         assert one_year['deposits'] is None
         assert one_year['ending_value'] is None
+
+    def test_same_day_initial_deposit_is_not_counted_as_investment_loss(self):
+        user = UserFactory()
+        portfolio = PortfolioFactory(user=user, is_default=False)
+        snapshot_date = timezone.datetime(2026, 4, 20).date()
+
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='DEPOSIT',
+            amount=Decimal('10000.00'),
+            cash_currency='PEN',
+            timestamp=timezone.make_aware(timezone.datetime(2026, 4, 20, 9, 0, 0)),
+        )
+        DailyPortfolioSnapshot.objects.create(
+            portfolio=portfolio,
+            date=snapshot_date,
+            total_value=Decimal('10000.00'),
+            cash_balance=Decimal('10000.00'),
+            investment_value=Decimal('0.00'),
+            total_deposits=Decimal('10000.00'),
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(
+            reverse('dashboard-portfolio-benchmarks', kwargs={'portfolio_id': portfolio.id}),
+            {'from': snapshot_date.isoformat(), 'to': snapshot_date.isoformat()},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        history = response.json()['history']['selected']
+        assert Decimal(str(history['beginning_value'])) == Decimal('10000.00')
+        assert Decimal(str(history['ending_value'])) == Decimal('10000.00')
+        assert Decimal(str(history['deposits'])) == Decimal('0.00')
+        assert Decimal(str(history['net_contributions'])) == Decimal('0.00')
+        assert Decimal(str(history['investment_changes'])) == Decimal('0.00')

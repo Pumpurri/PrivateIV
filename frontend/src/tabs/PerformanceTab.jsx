@@ -90,6 +90,15 @@ const toDisplayTransactionAmount = (txn, displayCurrency) => {
   return type === 'WITHDRAWAL' ? -amountInDisplay : amountInDisplay;
 };
 
+const filterTransactionsAfterStartingSnapshot = (transactions, startingSnapshotDate) => {
+  if (!startingSnapshotDate) return transactions;
+  const startKey = toISODate(startingSnapshotDate);
+  return transactions.filter((txn) => {
+    const date = parseDate(txn.timestamp);
+    return date && toISODate(date) > startKey;
+  });
+};
+
 const PerformanceTab = ({ portfolio, transactions = [] }) => {
   const [perfSubTab, setPerfSubTab] = useState('performance');
   const [perfIndexSel, setPerfIndexSel] = useState({ djia: false, nasdaq: false, sp500: false, r2k: false });
@@ -306,19 +315,23 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   }, [transactionRows, perfFrom, perfTo, earliestSnapshotDate, latestSnapshotDate]);
 
-  const contributionsByDate = useMemo(() => {
-    const byDate = new Map();
-    filteredTransactions.forEach((txn) => {
+  const perfSeries = useMemo(() => {
+    if (!filteredSnapshots.length) return { portfolioValue: [], contrib: [] };
+    const performanceTransactions = filterTransactionsAfterStartingSnapshot(
+      filteredTransactions,
+      filteredSnapshots[0]?.date,
+    );
+    const contributionsAfterStart = new Map();
+    performanceTransactions.forEach((txn) => {
       const txnDate = parseDate(txn.timestamp);
       if (!txnDate) return;
       const key = toISODate(txnDate);
-      byDate.set(key, (byDate.get(key) || 0) + toDisplayTransactionAmount(txn, perfDisplayCurrency));
+      contributionsAfterStart.set(
+        key,
+        (contributionsAfterStart.get(key) || 0) + toDisplayTransactionAmount(txn, perfDisplayCurrency),
+      );
     });
-    return byDate;
-  }, [filteredTransactions, perfDisplayCurrency]);
 
-  const perfSeries = useMemo(() => {
-    if (!filteredSnapshots.length) return { portfolioValue: [], contrib: [] };
     let runningContributions = 0;
     const portfolioValue = [];
     const contrib = [];
@@ -326,13 +339,13 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
 
     filteredSnapshots.forEach((snap) => {
       const key = toISODate(snap.date);
-      runningContributions += contributionsByDate.get(key) || 0;
+      runningContributions += contributionsAfterStart.get(key) || 0;
       portfolioValue.push(Number(snap.totalValue || 0));
       contrib.push(beginningValue + runningContributions);
     });
 
     return { portfolioValue, contrib };
-  }, [filteredSnapshots, contributionsByDate]);
+  }, [filteredSnapshots, filteredTransactions, perfDisplayCurrency]);
 
   const perfChartSeriesList = useMemo(() => {
     const portfolioValueSeries = filteredSnapshots.map((snap, index) => ({
@@ -376,7 +389,14 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
 
     const beginningValue = Number(filteredSnapshots[0].totalValue || 0);
     const endingValue = Number(filteredSnapshots[filteredSnapshots.length - 1].totalValue || 0);
-    const netContributions = filteredTransactions.reduce((sum, txn) => sum + toDisplayTransactionAmount(txn, perfDisplayCurrency), 0);
+    const performanceTransactions = filterTransactionsAfterStartingSnapshot(
+      filteredTransactions,
+      filteredSnapshots[0]?.date,
+    );
+    const netContributions = performanceTransactions.reduce(
+      (sum, txn) => sum + toDisplayTransactionAmount(txn, perfDisplayCurrency),
+      0,
+    );
     const investmentChanges = endingValue - beginningValue - netContributions;
     const returnPct = beginningValue > 0 ? (investmentChanges / beginningValue) * 100 : 0;
 
@@ -388,10 +408,10 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
       endingMarketValue: Number(filteredSnapshots[filteredSnapshots.length - 1].investmentValue || 0),
       endingCashValue: Number(filteredSnapshots[filteredSnapshots.length - 1].cashBalance || 0),
       netContributions,
-      deposits: filteredTransactions
+      deposits: performanceTransactions
         .filter((txn) => String(txn?.transaction_type || '').toUpperCase() === 'DEPOSIT')
         .reduce((sum, txn) => sum + Math.abs(toDisplayTransactionAmount(txn, perfDisplayCurrency)), 0),
-      withdrawals: filteredTransactions
+      withdrawals: performanceTransactions
         .filter((txn) => String(txn?.transaction_type || '').toUpperCase() === 'WITHDRAWAL')
         .reduce((sum, txn) => sum + Math.abs(toDisplayTransactionAmount(txn, perfDisplayCurrency)), 0),
       investmentChanges,
@@ -410,15 +430,19 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
       if (!date) return false;
       return date >= fromDate && date <= toDate;
     });
+    const performanceTransactions = filterTransactionsAfterStartingSnapshot(txns, snaps[0]?.date);
 
     const beginningValue = Number(snaps[0]?.totalValue || 0);
     const endingValue = Number(snaps[snaps.length - 1]?.totalValue || 0);
-    const netContributions = txns.reduce((sum, txn) => sum + toDisplayTransactionAmount(txn, perfDisplayCurrency), 0);
+    const netContributions = performanceTransactions.reduce(
+      (sum, txn) => sum + toDisplayTransactionAmount(txn, perfDisplayCurrency),
+      0,
+    );
     const investmentChanges = endingValue - beginningValue - netContributions;
-    const deposits = txns
+    const deposits = performanceTransactions
       .filter((txn) => String(txn?.transaction_type || '').toUpperCase() === 'DEPOSIT')
       .reduce((sum, txn) => sum + Math.abs(toDisplayTransactionAmount(txn, perfDisplayCurrency)), 0);
-    const withdrawals = txns
+    const withdrawals = performanceTransactions
       .filter((txn) => String(txn?.transaction_type || '').toUpperCase() === 'WITHDRAWAL')
       .reduce((sum, txn) => sum + Math.abs(toDisplayTransactionAmount(txn, perfDisplayCurrency)), 0);
 
@@ -640,7 +664,6 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
 
       <div className="row" style={{ gap: 8, marginBottom: 12 }}>
         <button className={`btn ${perfSubTab === 'performance' ? 'primary' : 'ghost'}`} onClick={() => setPerfSubTab('performance')}>Performance</button>
-        <button className={`btn ${perfSubTab === 'asset' ? 'primary' : 'ghost'}`} onClick={() => setPerfSubTab('asset')}>Asset Allocation</button>
       </div>
 
       {perfSubTab === 'performance' && (
@@ -1046,3 +1069,8 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
 };
 
 export default PerformanceTab;
+  useEffect(() => {
+    if (perfSubTab !== 'performance') {
+      setPerfSubTab('performance');
+    }
+  }, [perfSubTab]);
