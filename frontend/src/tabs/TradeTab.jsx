@@ -19,6 +19,7 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
   const [error, setError] = React.useState('');
   const [success, setSuccess] = React.useState('');
   const [step, setStep] = React.useState(1);
+  const [showTickerDirectory, setShowTickerDirectory] = React.useState(false);
   const boxRef = React.useRef(null);
   const [hasPicked, setHasPicked] = React.useState(false);
 
@@ -48,6 +49,25 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
 
   const suggestions = React.useMemo(() => searchStocks(symbol).slice(0, 5), [symbol, searchStocks]);
   const selectedStock = React.useMemo(() => findStock(symbol), [symbol, findStock]);
+  const tickerDirectoryRows = React.useMemo(() => {
+    const normalizedQuery = (symbol || '').trim().toLowerCase();
+    return stocks
+      .filter((stock) => stock?.is_active !== false)
+      .filter((stock) => {
+        if (!normalizedQuery) return true;
+        return [stock.symbol, stock.name, stock.company_code]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+      })
+      .sort((a, b) => String(a.symbol || '').localeCompare(String(b.symbol || '')))
+      .map((stock) => ({
+        id: stock.id || stock.symbol,
+        symbol: stock.symbol || '-',
+        description: stock.name || '-',
+        market: stock.is_local ? 'BVL' : 'USA',
+        nativeCurrency: String(stock.currency || 'PEN').toUpperCase(),
+      }));
+  }, [stocks, symbol]);
 
   const isStockHeld = React.useMemo(() => {
     if (!selectedStock || !holdings || !Array.isArray(holdings)) return false;
@@ -169,7 +189,16 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
       {/* Step 1: Enter Order — cash header */}
       {step === 1 && (
         <div className="card" style={{ padding: 16, marginTop: 16 }}>
-          <div className="muted" style={{ marginBottom: 6 }}>Efectivo disponible</div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
+            <div className="muted">Efectivo disponible</div>
+            <button
+              type="button"
+              className="btn xs ghost"
+              onClick={() => setShowTickerDirectory((current) => !current)}
+            >
+              {showTickerDirectory ? 'Ocultar tickers disponibles' : 'Ver todos los tickers disponibles'}
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 20, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <div>
               <span style={{ fontSize: 20, fontWeight: 700 }}>S/ {cashPEN.toFixed(2)}</span>
@@ -182,6 +211,53 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
               </div>
             )}
           </div>
+
+          {showTickerDirectory && (
+            <div className="card" style={{ padding: 12, marginTop: 16 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Tickers disponibles</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+                Haz click en cualquier fila para cargar el ticker en la orden.
+              </div>
+              <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
+                <table className="table returns-compact">
+                  <thead>
+                    <tr style={{ textAlign: 'left' }}>
+                      <th>Ticker</th>
+                      <th>Descripción</th>
+                      <th>Mercado</th>
+                      <th>Moneda nativa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tickerDirectoryRows.map((row) => (
+                      <tr
+                        key={row.id}
+                        onClick={() => {
+                          setSymbol(row.symbol);
+                          setHasPicked(true);
+                          pushRecent(row.symbol);
+                          setOpen(false);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td style={{ fontWeight: 700 }}>{row.symbol}</td>
+                        <td>{row.description}</td>
+                        <td>{row.market}</td>
+                        <td>{row.nativeCurrency}</td>
+                      </tr>
+                    ))}
+                    {tickerDirectoryRows.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="muted">
+                          No hay tickers que coincidan con la búsqueda actual.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="trade-form" style={{ marginTop: 16 }}>
             <div className="grid" style={{ gap: 10, maxWidth: 520, margin: '0 auto' }}>
