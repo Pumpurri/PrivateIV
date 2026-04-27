@@ -294,8 +294,8 @@ class TestPortfolioBenchmarkView:
 
         assert response.status_code == status.HTTP_200_OK
         one_year = response.json()['history']['one_year']
-        assert one_year['range']['from'] == '2025-04-24'
-        assert one_year['range']['to'] == '2026-04-24'
+        assert one_year['range']['from'] == '2025-04-27'
+        assert one_year['range']['to'] == '2026-04-27'
         assert one_year['beginning_value'] is None
         assert one_year['deposits'] is None
         assert one_year['ending_value'] is None

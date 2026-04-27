@@ -1,6 +1,7 @@
 import pytest
 from datetime import date, timedelta
 from decimal import Decimal
+from django.utils import timezone
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -105,6 +106,23 @@ class TestPortfolioListView:
 
     def test_create_portfolio_with_split_pen_and_usd_initial_deposits(self):
         user = UserFactory.create()
+        today = timezone.now().date()
+        FXRate.objects.create(
+            date=today,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.75'),
+            rate_type='mid',
+            session='intraday',
+        )
+        FXRate.objects.create(
+            date=today,
+            base_currency='PEN',
+            quote_currency='USD',
+            rate=Decimal('3.75'),
+            rate_type='mid',
+            session='cierre',
+        )
         self.client.force_authenticate(user=user)
 
         response = self.client.post(

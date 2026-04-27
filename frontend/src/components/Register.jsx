@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from "react-router-dom";
 import { registerUser } from "../services/api";
 import DatePicker from "./DatePicker";
@@ -80,14 +80,14 @@ function Register() {
                 setIsSubmitting(false);
                 return;
             }
-            await registerUser({
+            const response = await registerUser({
                 email: form.email.trim().toLowerCase(),
                 password: form.password,
                 full_name: form.fullName.trim(),
                 dob: form.dob
             });
-            // Update auth state immediately (no need for additional API call)
-            login();
+            // Update auth state immediately from the registration response.
+            login(response.data);
             navigate('/dashboard');
         } catch (err) {
             // Prefer structured field errors from DRF serializers

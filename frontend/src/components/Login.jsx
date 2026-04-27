@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from "react-router-dom";
 import { loginUser } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -38,8 +38,8 @@ function Login() {
                 signal: abortControllerRef.current.signal
             });
 
-            // Update auth state immediately (no need for additional API call)
-            login();
+            // Update auth state immediately from the login response.
+            login(response.data);
             navigate("/dashboard");
         } catch (err) {
             if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {

@@ -31,7 +31,14 @@ class HistoricalValuationService:
             stock = Stock.objects.get(pk=stock_id)
             native_value = price * holding['quantity']
             # Historical valuations prefer cierre (EOD) mid (estimate)
-            rate = get_fx_rate(date, portfolio.base_currency, stock.currency, rate_type='mid', session='cierre')
+            rate = get_fx_rate(
+                date,
+                portfolio.base_currency,
+                stock.currency,
+                rate_type='mid',
+                session='cierre',
+                require_rate=True,
+            )
             base_value = native_value * rate
             total_value += base_value
             

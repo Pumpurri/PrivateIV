@@ -105,8 +105,24 @@ class Portfolio(models.Model):
         pen_balance = self.cash_balance
         usd_balance = self.cash_balance_usd
         return (
-            convert_amount(pen_balance, 'PEN', target_currency, snapshot_date=snapshot_date, now=now, session=session)
-            + convert_amount(usd_balance, 'USD', target_currency, snapshot_date=snapshot_date, now=now, session=session)
+            convert_amount(
+                pen_balance,
+                'PEN',
+                target_currency,
+                snapshot_date=snapshot_date,
+                now=now,
+                session=session,
+                require_rate=True,
+            )
+            + convert_amount(
+                usd_balance,
+                'USD',
+                target_currency,
+                snapshot_date=snapshot_date,
+                now=now,
+                session=session,
+                require_rate=True,
+            )
         ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     @property
@@ -140,6 +156,7 @@ class Portfolio(models.Model):
                     getattr(h.stock, 'currency', 'USD'),
                     rate_type='mid',
                     session=current_fx_session,
+                    require_rate=True,
                 )
                 total += (native_value * rate)
             return total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)

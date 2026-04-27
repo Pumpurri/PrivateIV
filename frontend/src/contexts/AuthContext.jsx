@@ -1,89 +1,73 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { verifyAuth } from '../services/api';
 
-// Helper to read cookies
-function getCookie(name) {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
-  return match ? decodeURIComponent(match[2]) : null;
-}
-
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  // Initialize from sessionStorage to survive remounts (Strict Mode in dev)
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const stored = sessionStorage.getItem('isAuthenticated');
-    return stored === 'true' ? true : stored === 'false' ? false : null;
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState(null);
-  const isCheckingRef = useRef(false);
+  const authCheckPromiseRef = useRef(null);
+  const authStateVersionRef = useRef(0);
 
-  // Persist auth state to sessionStorage
-  useEffect(() => {
-    if (isAuthenticated !== null) {
-      sessionStorage.setItem('isAuthenticated', String(isAuthenticated));
+  const checkAuth = useCallback(async () => {
+    if (authCheckPromiseRef.current) {
+      return authCheckPromiseRef.current;
     }
-  }, [isAuthenticated]);
+
+    authCheckPromiseRef.current = (async () => {
+      const authStateVersion = authStateVersionRef.current;
+      setIsLoading(true);
+
+      try {
+        const result = await verifyAuth();
+
+        if (authStateVersionRef.current !== authStateVersion) {
+          return result.authenticated;
+        }
+
+        setIsAuthenticated(result.authenticated);
+        setUser(result.authenticated ? (result.user ?? null) : null);
+        return result.authenticated;
+      } catch (error) {
+        console.error('Auth check failed:', error);
+
+        if (authStateVersionRef.current === authStateVersion) {
+          setIsAuthenticated(false);
+          setUser(null);
+        }
+
+        return false;
+      } finally {
+        if (authStateVersionRef.current === authStateVersion) {
+          setIsLoading(false);
+        }
+        authCheckPromiseRef.current = null;
+      }
+    })();
+
+    return authCheckPromiseRef.current;
+  }, []);
 
   // Check auth on mount
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = useCallback(async () => {
-    // Prevent duplicate simultaneous checks
-    if (isCheckingRef.current) return;
-
-    // If already authenticated via login(), don't recheck
-    if (isAuthenticated === true) {
-      setIsLoading(false);
-      return;
-    }
-
-    isCheckingRef.current = true;
-    setIsLoading(true);
-
-    try {
-      // Fast check: Do we have a session cookie?
-      const hasSessionCookie = getCookie('sessionid');
-
-      if (!hasSessionCookie) {
-        // No session cookie = definitely not logged in
-        // Skip API call for better performance
-        setIsAuthenticated(false);
-        setIsLoading(false);
-        isCheckingRef.current = false;
-        return;
-      }
-
-      // Has session cookie = verify with backend
-      const result = await verifyAuth();
-      setIsAuthenticated(result.authenticated);
-      if (result.user) {
-        setUser(result.user);
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      setIsAuthenticated(false);
-    } finally {
-      setIsLoading(false);
-      isCheckingRef.current = false;
-    }
-  }, [isAuthenticated]);
+    void checkAuth();
+  }, [checkAuth]);
 
   // Call this after successful login/register
   const login = useCallback((userData = null) => {
+    authStateVersionRef.current += 1;
     setIsAuthenticated(true);
     setUser(userData);
+    setIsLoading(false);
   }, []);
 
   // Call this after logout
   const logout = useCallback(() => {
+    authStateVersionRef.current += 1;
     setIsAuthenticated(false);
     setUser(null);
-    sessionStorage.removeItem('isAuthenticated');
+    setIsLoading(false);
   }, []);
 
   // Recheck auth (useful for session expiry scenarios)

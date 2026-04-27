@@ -30,10 +30,13 @@ def get_snapshot_fx_context(*, snapshot_date=None, now=None, session=None):
     return fx_date, session or live_session
 
 
-def convert_amount(amount, from_currency, to_currency, *, snapshot_date=None, now=None, rate_type='mid', session=None, require_rate=False):
+def convert_amount(amount, from_currency, to_currency, *, snapshot_date=None, now=None, rate_type='mid', session=None, require_rate=True):
     amount = Decimal(amount or '0')
     from_currency = normalize_currency(from_currency)
     to_currency = normalize_currency(to_currency)
+
+    if amount == Decimal('0'):
+        return quantize_money(amount)
 
     if from_currency == to_currency:
         return quantize_money(amount)
