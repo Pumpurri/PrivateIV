@@ -1069,8 +1069,3 @@ const PerformanceTab = ({ portfolio, transactions = [] }) => {
 };
 
 export default PerformanceTab;
-  useEffect(() => {
-    if (perfSubTab !== 'performance') {
-      setPerfSubTab('performance');
-    }
-  }, [perfSubTab]);
