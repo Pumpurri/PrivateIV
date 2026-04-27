@@ -65,7 +65,7 @@ const Header = () => {
           onClick={handleBrandClick}
           onKeyDown={onBrandKey}
         >
-          <span className="brand-text">Simula</span> <span className="brand-badge">BETA</span>
+          <span className="brand-text">BolsaSim</span> <span className="brand-badge">BETA</span>
         </a>
         {!isAuthPage && !isAuthenticated && (
           <nav className="row">
