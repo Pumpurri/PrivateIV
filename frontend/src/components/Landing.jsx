@@ -287,7 +287,7 @@ const Landing = () => {
           className={`container row ${isVisible['footer-top'] ? 'animate-fade-up' : ''}`}
           style={{ justifyContent: 'space-between' }}
         >
-          <span className="muted">© {new Date().getFullYear()} Simula</span>
+          <span className="muted">© {new Date().getFullYear()} BolsaSim</span>
           <span />
         </div>
         <div
