@@ -1,8 +1,11 @@
 """
-Create a large local portfolio dataset for UI behavior testing.
+Create a large disposable local portfolio dataset for UI behavior testing.
 
 Usage:
-    python manage.py create_test_portfolio --username=user@example.com
+    python manage.py create_test_portfolio --username=user@example.com --confirm-disposable
+
+Requires DEBUG=True and an explicit disposable-database acknowledgement.
+Refuses an existing portfolio unless --reset is explicit.
 """
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -10,6 +13,7 @@ import math
 import random
 import uuid
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -57,12 +61,22 @@ class Command(BaseCommand):
         parser.add_argument("--transactions", type=int, default=850, help="Target transaction count.")
         parser.add_argument("--seed", type=int, default=805, help="Random seed for deterministic data.")
         parser.add_argument(
-            "--no-reset",
+            "--confirm-disposable",
             action="store_true",
-            help="Do not remove existing portfolios with the same name for this user.",
+            help="Acknowledge that this command changes shared prices and is only for a disposable local database.",
+        )
+        parser.add_argument(
+            "--reset",
+            action="store_true",
+            help="Replace existing test portfolios with the same name for this user (local DEBUG only).",
         )
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError("Test portfolio generation is only allowed with DEBUG=True in a disposable local database.")
+        if not options["confirm_disposable"]:
+            raise CommandError("Pass --confirm-disposable only when using a disposable local database.")
+
         self.random = random.Random(options["seed"])
         email = options["username"].lower().strip()
         days = max(options["days"], 30)
@@ -78,17 +92,21 @@ class Command(BaseCommand):
         self.stdout.write(f"Using database alias: default")
         self.stdout.write(f"Populating user: {user.email}")
 
-        if not options["no_reset"]:
-            stale = Portfolio.all_objects.filter(user=user, name=portfolio_name)
+        stale = Portfolio.all_objects.filter(user=user, name=portfolio_name)
+        if stale.exists():
+            if not options["reset"]:
+                raise CommandError(
+                    f"Portfolio '{portfolio_name}' already exists for this user. "
+                    "Use --reset only in a disposable local database to replace it."
+                )
             stale_ids = list(stale.values_list("id", flat=True))
-            if stale_ids:
-                self.stdout.write(f"Removing existing '{portfolio_name}' portfolios: {stale_ids}")
-                HoldingSnapshot.objects.filter(portfolio_id__in=stale_ids).delete()
-                DailyPortfolioSnapshot.all_objects.filter(portfolio_id__in=stale_ids).delete()
-                RealizedPNL.objects.filter(portfolio_id__in=stale_ids).delete()
-                Transaction.all_objects.filter(portfolio_id__in=stale_ids).delete()
-                PortfolioPerformance.objects.filter(portfolio_id__in=stale_ids).delete()
-                Portfolio.all_objects.filter(id__in=stale_ids).delete()
+            self.stdout.write(f"Removing existing '{portfolio_name}' portfolios: {stale_ids}")
+            HoldingSnapshot.objects.filter(portfolio_id__in=stale_ids).delete()
+            DailyPortfolioSnapshot.all_objects.filter(portfolio_id__in=stale_ids).delete()
+            RealizedPNL.objects.filter(portfolio_id__in=stale_ids).delete()
+            Transaction.all_objects.filter(portfolio_id__in=stale_ids).delete()
+            PortfolioPerformance.objects.filter(portfolio_id__in=stale_ids).delete()
+            Portfolio.all_objects.filter(id__in=stale_ids).delete()
 
         stocks = self._ensure_market_data(start_date.date(), end_date)
 
