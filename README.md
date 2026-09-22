@@ -19,14 +19,25 @@ A full-stack investment portfolio simulator for Peruvian and U.S. markets. It tr
 
 ## Architecture
 
-```text
-React / Vite client
-       │ authenticated REST requests
-       ▼
-Django API ──────────────── PostgreSQL
-       │ background work
-       ▼
-Redis ◀── Celery worker / beat ──▶ BVL, FMP, BCRP
+```mermaid
+flowchart LR
+    Browser["Browser"] --> Client
+
+    subgraph Vercel
+        Client["React + Vite"]
+    end
+
+    subgraph Railway["Railway services — paused"]
+        API["Django REST API"] <--> DB[("PostgreSQL")]
+        Beat["Celery Beat"] -->|"Schedules jobs"| Broker[("Redis broker")]
+        Broker -->|"Queues tasks"| Worker["Celery worker"]
+        Worker <--> DB
+    end
+
+    Client -->|"Session auth + CSRF<br/>REST / JSON"| API
+    Worker --> BVL["BVL market data"]
+    Worker --> FMP["Financial Modeling Prep"]
+    Worker --> BCRP["BCRP exchange rates"]
 ```
 
 The Django apps are [`users`](backend/users), [`stocks`](backend/stocks), and [`portfolio`](backend/portfolio). The frontend lives in [`frontend/`](frontend). The public [preview](https://bolsasim.com/preview) is a separate illustrative screen; it does not call the paused backend.
