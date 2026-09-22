@@ -8,6 +8,7 @@ import Landing from "./components/Landing";
 import Login from "./components/Login";
 import Register from "./components/Register";
 import PausedDemo from "./components/PausedDemo";
+import DemoDashboard from "./components/DemoDashboard";
 import { DEMO_PAUSED } from "./config/demo";
 import UserDashboard from "./components/UserDashboard";
 import AppLayout from "./components/AppLayout";
@@ -30,6 +31,7 @@ function App() {
                                 <Route path="/" element={<Landing />} />
                                 <Route path="/login" element={DEMO_PAUSED ? <PausedDemo /> : <Login />} />
                                 <Route path="/register" element={DEMO_PAUSED ? <PausedDemo /> : <Register />} />
+                                <Route path="/preview" element={<DemoDashboard />} />
                             </Route>
                             <Route element={<ProtectedRoute />}>
                                 <Route path="/dashboard" element={<UserDashboard />} />

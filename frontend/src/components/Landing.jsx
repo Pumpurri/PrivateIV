@@ -152,11 +152,11 @@ const Landing = () => {
                 <span className="pill">Suite de Simulación de Inversión</span>
                 <h1 className="hero-title neon text-4xl md:text-5xl lg:text-6xl leading-tight">Simula tus inversiones en la BVL</h1>
                 <p className="hero-sub text-lg md:text-xl mt-3 md:mt-4">
-                  {DEMO_PAUSED ? 'Explora cómo funciona el simulador mientras la demo está en pausa.' : 'El simulador es GRATIS para unirse y usarlo'}
+                  {DEMO_PAUSED ? 'Explora una vista de ejemplo mientras la demo interactiva está en pausa.' : 'El simulador es GRATIS para unirse y usarlo'}
                 </p>
                 <div className="row justify-center md:justify-start" style={{ gap: 12, marginTop: 12 }}>
                   {DEMO_PAUSED ? (
-                    <a className="btn primary transform-gpu scale-105 md:scale-110" href="https://github.com/Pumpurri/PrivateIV">Ver el proyecto</a>
+                    <Link className="btn primary transform-gpu scale-105 md:scale-110" to="/preview">Ver vista previa</Link>
                   ) : (
                     <Link className="btn primary transform-gpu scale-105 md:scale-110" to="/register">Regístrate</Link>
                   )}

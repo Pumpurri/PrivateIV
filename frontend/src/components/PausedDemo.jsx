@@ -8,7 +8,7 @@ export default function PausedDemo() {
         <p className="muted">El servidor está apagado por ahora, así que no se pueden crear cuentas ni iniciar sesión. Puedes explorar el código y las capturas del proyecto en GitHub.</p>
         <div className="row" style={{ justifyContent: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24 }}>
           <Link className="btn" to="/">Volver al inicio</Link>
-          <a className="btn primary" href="https://github.com/Pumpurri/PrivateIV">Ver el proyecto</a>
+          <Link className="btn primary" to="/preview">Ver vista previa</Link>
         </div>
       </div>
     </main>
