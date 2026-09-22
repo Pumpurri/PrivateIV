@@ -46,7 +46,7 @@ class SnapshotService:
 
     @classmethod
     def _get_historical_cash(cls, portfolio, snapshot_date):
-        """Calculate cash balance as of snapshot date using transaction history with error handling.
+        """Calculate cash balance as of snapshot date using transaction history.
 
         This reconstructs PEN and USD wallets separately and only converts to the
         portfolio base currency at the snapshot date. That keeps historical cash
@@ -96,15 +96,13 @@ class SnapshotService:
 
         except ValidationError:
             raise
-        except Exception as e:
-            logger.error(f"Error fetching historical cash for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return Decimal('0.00')
+        except Exception:
+            logger.exception("Historical cash calculation failed for portfolio %s on %s", portfolio.id, snapshot_date)
+            raise
 
     @classmethod
     def _get_historical_deposits(cls, portfolio, snapshot_date):
-        """Calculate total deposits as of snapshot date with error handling."""
+        """Calculate total deposits as of snapshot date."""
         try:
             deposits = Transaction.objects.filter(
                 portfolio=portfolio,
@@ -121,9 +119,9 @@ class SnapshotService:
             return cls._quantize_money(total)
         except ValidationError:
             raise
-        except Exception as e:
-            logger.error(f"Error fetching historical deposits for portfolio {portfolio.id} on {snapshot_date}: {str(e)}")
-            return Decimal('0.00')
+        except Exception:
+            logger.exception("Historical deposit calculation failed for portfolio %s on %s", portfolio.id, snapshot_date)
+            raise
 
     @classmethod
     def _get_historical_price(cls, stock_id, snapshot_date, portfolio):

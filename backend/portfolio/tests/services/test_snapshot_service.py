@@ -153,3 +153,24 @@ class TestSnapshotService:
         historical_cash = SnapshotService._get_historical_cash(portfolio, future_snapshot_day)
 
         assert historical_cash == Decimal('350.00')
+
+    def test_historical_cash_does_not_replace_unexpected_failure_with_zero(self, portfolio, mocker):
+        mocker.patch.object(SnapshotService, '_wallets_to_base', side_effect=RuntimeError('FX unavailable'))
+
+        with pytest.raises(RuntimeError, match='FX unavailable'):
+            SnapshotService._get_historical_cash(portfolio, date(2026, 4, 17))
+
+    def test_historical_deposits_does_not_replace_unexpected_failure_with_zero(self, portfolio, mocker):
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('100.00'),
+            cash_currency='PEN',
+        )
+        mocker.patch(
+            'portfolio.services.snapshot_service.get_transaction_amount_in_currency',
+            side_effect=RuntimeError('conversion failed'),
+        )
+
+        with pytest.raises(RuntimeError, match='conversion failed'):
+            SnapshotService._get_historical_deposits(portfolio, timezone.now().date())
