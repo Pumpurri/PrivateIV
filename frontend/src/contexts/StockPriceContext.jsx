@@ -2,7 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { getAllStocks, getStocksLastRefresh } from '../services/api';
 
 const StockPriceContext = createContext();
+const CACHE_DURATION = 14 * 60 * 1000; // 14 minutes
 
+// The hook intentionally lives alongside its provider for a single import path.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useStockPrices = () => {
   const context = useContext(StockPriceContext);
   if (!context) {
@@ -12,7 +15,6 @@ export const useStockPrices = () => {
 };
 
 export const StockPriceProvider = ({ children }) => {
-  const CACHE_DURATION = 14 * 60 * 1000; // 14 minutes
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

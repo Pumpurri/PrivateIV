@@ -1,10 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 const Landing = () => {
-  const [scrolled, setScrolled] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
   const [isVisible, setIsVisible] = useState({});
   const [mockupValue, setMockupValue] = useState(0);
   const [mockupReturn, setMockupReturn] = useState(0);
@@ -28,17 +25,6 @@ const Landing = () => {
   
 
   const formatCurrency = (v) => `S/ ${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  // Show floating CTA after scrolling down
-  useEffect(() => {
-    const handleScroll = () => {
-      const y = window.scrollY || document.documentElement.scrollTop || 0;
-      setScrolled(y > 2);
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
 
   // (Green blob removed per request)
 

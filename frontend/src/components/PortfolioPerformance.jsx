@@ -16,7 +16,7 @@ const PortfolioPerformance = () => {
       try {
         const d = await getPortfolioPerformance(id);
         setData(d);
-      } catch (e) {
+      } catch {
         setError('Failed to load performance');
       } finally {
         setLoading(false);

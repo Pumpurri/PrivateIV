@@ -32,13 +32,15 @@ const Transactions = () => {
       } else {
         setList({ results: [], count: 0 });
       }
-    } catch (e) {
+    } catch {
       setError('No se pudieron cargar las transacciones');
     } finally {
       setLoading(false);
     }
   };
 
+  // Initial load is mount-only; selection changes are handled by the effect below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
 
@@ -48,7 +50,9 @@ const Transactions = () => {
       try {
         const data = await getTransactions({ portfolio: selected });
         setList(data);
-      } catch (_) {}
+      } catch {
+        // Keep the previous list if refreshing this selection fails.
+      }
     };
     rel();
   }, [selected]);

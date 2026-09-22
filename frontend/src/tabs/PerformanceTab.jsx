@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import DatePicker from '../components/DatePicker';
 import TimeSeriesChart from '../components/TimeSeriesChart';
-import { formatCurrency, formatPercent } from '../utils/format';
+import { formatPercent } from '../utils/format';
 import { getPortfolioBenchmarksApi, getPortfolioOverviewApi } from '../services/api';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

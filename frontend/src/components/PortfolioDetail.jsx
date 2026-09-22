@@ -91,7 +91,7 @@ const PortfolioDetail = () => {
         setHoldingsSummary(h?.summary || null);
         const txList = Array.isArray(tx?.results) ? tx.results : tx;
         setTransactions(txList || []);
-      } catch (e) {
+      } catch {
         if (cancelled) return;
         setPortfolio(null);
       } finally {
@@ -101,7 +101,7 @@ const PortfolioDetail = () => {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, displayCurrency]);
 
   useEffect(() => {
     if (walletAction !== 'convert' || fxFetchedRef.current) return;
@@ -124,7 +124,9 @@ const PortfolioDetail = () => {
       setHoldingsSummary(h?.summary || null);
       const txList = Array.isArray(tx?.results) ? tx.results : tx;
       setTransactions(txList || []);
-    } catch (_) {}
+    } catch {
+      // Keep the currently displayed data if a refresh fails.
+    }
   };
 
   const normalize = (value) => (value || '').toString()
@@ -513,7 +515,7 @@ const PortfolioDetail = () => {
                 <div className="grid" style={{ gap: 8 }}>
                   <h4 style={{ margin: 0 }}>Eliminar portafolio</h4>
                   <p className="muted" style={{ margin: 0 }}>
-                    Para eliminar tu portafolio, escribe exactamente <strong>"eliminar {portfolio.name}"</strong>.
+                    Para eliminar tu portafolio, escribe exactamente <strong>&quot;eliminar {portfolio.name}&quot;</strong>.
                   </p>
                   <input
                     className="input"

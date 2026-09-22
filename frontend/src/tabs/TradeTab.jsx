@@ -97,11 +97,15 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
               const scopedRaw = localStorage.getItem(key);
               const scopedList = scopedRaw ? JSON.parse(scopedRaw) : [];
               if (Array.isArray(scopedList) && scopedList.length > 0) { list = scopedList; break; }
-            } catch {}
+            } catch {
+              // Ignore malformed local history from another portfolio.
+            }
           }
         }
         if (Array.isArray(list) && list.length > 0) {
-          try { localStorage.setItem(storageKey, JSON.stringify(list.slice(0, 5))); } catch {}
+          try { localStorage.setItem(storageKey, JSON.stringify(list.slice(0, 5))); } catch {
+            // Storage may be unavailable in private browsing.
+          }
         }
       }
       if (Array.isArray(list)) setRecent(list.slice(0, 5));
@@ -114,7 +118,9 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
     if (!s) return;
     setRecent((cur) => {
       const next = [s, ...cur.filter(x => x !== s)].slice(0, 5);
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {
+        // The in-memory recent list still works without storage.
+      }
       return next;
     });
   }, [storageKey]);
@@ -163,7 +169,9 @@ const TradeTab = ({ portfolio, holdings, onTransaction }) => {
       });
       setSuccess(`Order executed! ${action} ${quantity} shares of ${selectedStock.symbol}`);
       setStep(3);
-      try { if (typeof onTransaction === 'function') await onTransaction(); } catch {}
+      try { if (typeof onTransaction === 'function') await onTransaction(); } catch {
+        // The order succeeded even if the surrounding view cannot refresh.
+      }
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to execute order');
       setStep(3);

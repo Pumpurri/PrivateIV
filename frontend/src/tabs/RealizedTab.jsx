@@ -101,7 +101,6 @@ const RealizedTab = ({ portfolio }) => {
   const [symbolFilter, setSymbolFilter] = useState('');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [realizedData, setRealizedData] = useState(null);
   const [chartTooltip, setChartTooltip] = useState(null);
@@ -202,7 +201,6 @@ const RealizedTab = ({ portfolio }) => {
 
   const loadRealized = useCallback(async (params = {}) => {
     if (!portfolioId) return;
-    setLoading(true);
     setError('');
     try {
       const data = await getPortfolioRealized(portfolioId, params);
@@ -211,8 +209,6 @@ const RealizedTab = ({ portfolio }) => {
       console.error(err);
       setRealizedData(null);
       setError('No se pudieron cargar las ganancias realizadas. Intenta nuevamente.');
-    } finally {
-      setLoading(false);
     }
   }, [portfolioId]);
 
@@ -233,6 +229,8 @@ const RealizedTab = ({ portfolio }) => {
     const symbol = symbolFilter.trim();
     if (symbol) params.symbol = symbol;
     loadRealized(params);
+  // Filters are applied explicitly; changing display currency auto-refreshes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [portfolioId, displayCurrency, loadRealized]);
 
   const detailRows = useMemo(() => {

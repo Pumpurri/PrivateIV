@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
@@ -30,15 +30,6 @@ const readStoredCurrencyMode = () => {
   }
   return 'PEN';
 };
-const formatDateDDMMYYYY = (value) => {
-  if (!value) return '';
-  const d = new Date(value);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
-};
-
 function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -62,7 +53,6 @@ function UserDashboard() {
   const [draftName, setDraftName] = useState('');
   const [draftDesc, setDraftDesc] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
-  const [overlayRect, setOverlayRect] = useState(null);
 
   // Delete confirmation modal state
   const [deletingMeta, setDeletingMeta] = useState(false);
@@ -93,23 +83,6 @@ function UserDashboard() {
   const touchStartRef = useRef({ x: 0, y: 0 });
   const draggingIdRef = useRef(null);
 
-  const computeOverlayRect = () => {
-    try {
-      const lr = listRef.current?.getBoundingClientRect();
-      if (!lr) return null;
-      const pad = 8;
-      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-      const top = Math.max(0, Math.round(lr.top - pad));
-      const left = Math.max(0, Math.round(lr.left - pad));
-      const width = Math.min(vw - left, Math.round(lr.width + pad * 2));
-      const height = Math.min(vh - top, Math.round(lr.height + pad * 2));
-      return { top, left, width, height };
-    } catch {
-      return null;
-    }
-  };
-
   const startDrag = (idx) => {
     isDraggingRef.current = true;
     setDragIndex(idx);
@@ -128,14 +101,14 @@ function UserDashboard() {
     setDragIndex(null);
   };
 
-  const getRects = () => {
+  const getRects = useCallback(() => {
     const rects = {};
     portfolios.forEach((p) => {
       const el = itemRefs.current[p.id];
       if (el) rects[p.id] = el.getBoundingClientRect();
     });
     return rects;
-  };
+  }, [portfolios]);
 
   useEffect(() => {
     if (!animateNextReorder.current || !pendingPrevRects.current) return;
@@ -165,10 +138,10 @@ function UserDashboard() {
     });
     animateNextReorder.current = false;
     pendingPrevRects.current = null;
-  }, [portfolios]);
+  }, [getRects]);
 
   // Limit the visible list with internal scroll
-  const measureList = () => {
+  const measureList = useCallback(() => {
     const listEl = listRef.current;
     if (!listEl) return;
     const firstCard = listEl.querySelector('.card');
@@ -188,14 +161,14 @@ function UserDashboard() {
     } else {
       setListMaxHeight(null);
     }
-  };
+  }, [portfolios.length]);
 
   useEffect(() => {
     const r = () => measureList();
     r();
     window.addEventListener('resize', r);
     return () => window.removeEventListener('resize', r);
-  }, [portfolios, badgeMode, selectedId]);
+  }, [portfolios, badgeMode, selectedId, measureList]);
 
   // Track viewport to adapt layout for mobile
   useEffect(() => {
@@ -226,55 +199,6 @@ function UserDashboard() {
     const t = setTimeout(() => setDetailEnter(false), 350);
     return () => clearTimeout(t);
   }, [selectedId]);
-
-  // Keep the blur overlay aligned with the left list when resizing/scrolling
-  useEffect(() => {
-    if (!(editingMeta || deletingMeta)) return;
-    const update = () => {
-      const rect = computeOverlayRect();
-      if (rect) setOverlayRect(rect);
-    };
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, { passive: true });
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update);
-    };
-  }, [editingMeta, deletingMeta]);
-
-  // Keep the edit overlay aligned with the left list during resize/scroll/layout changes
-  useEffect(() => {
-    if (!editingMeta) return;
-    const updateRect = () => {
-      try {
-        const lr = listRef.current?.getBoundingClientRect();
-        if (lr) {
-          setOverlayRect({ top: lr.top, left: lr.left, width: lr.width, height: lr.height });
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    updateRect();
-    window.addEventListener('resize', updateRect);
-    const onScrollCapture = () => updateRect();
-    window.addEventListener('scroll', onScrollCapture, true);
-    let ro = null;
-    try {
-      if (typeof ResizeObserver !== 'undefined' && listRef.current) {
-        ro = new ResizeObserver(updateRect);
-        ro.observe(listRef.current);
-      }
-    } catch {
-      /* ignore */
-    }
-    return () => {
-      window.removeEventListener('resize', updateRect);
-      window.removeEventListener('scroll', onScrollCapture, true);
-      if (ro) ro.disconnect();
-    };
-  }, [editingMeta]);
 
   const saveOrder = async (items) => {
     try {
@@ -325,7 +249,7 @@ function UserDashboard() {
         setPortfolios(withDefault);
         // Auto-select first portfolio if user only has one
         setSelectedId((prev) => prev ?? (ordered.length === 1 ? topId : null));
-      } catch (e) {
+      } catch {
         if (!mounted) return;
         setError('No se pudo cargar el panel');
       } finally {
@@ -467,6 +391,7 @@ function UserDashboard() {
 
   return (
     <div className="dashboard">
+      {error && <div role="alert" className="down">{error}</div>}
       <div
         className="grid dash-wrap"
         style={
@@ -747,7 +672,6 @@ function UserDashboard() {
                                 disabled={deletingMeta}
                                 onClick={() => {
                                   if (deletingMeta) return;
-                                  setOverlayRect(computeOverlayRect());
                                   setEditingMeta(true);
                                   const curName = overview.portfolio.name || '';
                                   const curDesc = overview.portfolio.description || '';
@@ -781,7 +705,6 @@ function UserDashboard() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (editingMeta) return;
-                                  setOverlayRect(computeOverlayRect());
                                   setDeleteInput('');
                                   setDeletingMeta(true);
                                 }}
@@ -845,7 +768,9 @@ function UserDashboard() {
                                           try {
                                             nameInputRef.current?.focus();
                                             nameInputRef.current?.select();
-                                          } catch {}
+                                          } catch {
+                                            // The input may have unmounted before focus.
+                                          }
                                           return;
                                         }
                                         setSavingMeta(true);
@@ -999,7 +924,7 @@ function UserDashboard() {
                                               setOverview(null);
                                               setDeletingMeta(false);
                                               setDeleteInput('');
-                                            } catch (err) {
+                                            } catch {
                                               alert('No se pudo eliminar el portafolio. Intenta de nuevo.');
                                             } finally {
                                               setDeletingBusy(false);

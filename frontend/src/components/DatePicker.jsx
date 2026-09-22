@@ -152,8 +152,8 @@ export default function DatePicker({ id, label = 'Fecha', value, onChange, max, 
   function deriveHintFromText(t) {
     if (!t) return null;
     const onlyDay = /^\s*(\d{1,2})\s*$/;
-    const dayMonth = /^\s*(\d{1,2})[\/](\d{1,2})\s*$/;
-    const ddmmyyyy = /^\s*(\d{1,2})[\/](\d{1,2})[\/]((?:19|20)\d{2})\s*$/;
+    const dayMonth = /^\s*(\d{1,2})[/](\d{1,2})\s*$/;
+    const ddmmyyyy = /^\s*(\d{1,2})[/](\d{1,2})[/]((?:19|20)\d{2})\s*$/;
     const yyyymmdd = /^\s*((?:19|20)\d{2})-(\d{1,2})-(\d{1,2})\s*$/;
 
     if (onlyDay.test(t)) {
@@ -180,7 +180,7 @@ export default function DatePicker({ id, label = 'Fecha', value, onChange, max, 
   // Parse only complete formats for committing value
   function parseFromText(t) {
     if (!t) return null;
-    const ddmmyyyy = /^\s*(\d{1,2})[\/](\d{1,2})[\/]((?:19|20)\d{2})\s*$/;
+    const ddmmyyyy = /^\s*(\d{1,2})[/](\d{1,2})[/]((?:19|20)\d{2})\s*$/;
     const yyyymmdd = /^\s*((?:19|20)\d{2})-(\d{1,2})-(\d{1,2})\s*$/;
     let d = null;
     if (ddmmyyyy.test(t)) {

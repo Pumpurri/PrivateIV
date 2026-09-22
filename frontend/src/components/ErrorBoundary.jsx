@@ -10,10 +10,6 @@ export default class ErrorBoundary extends React.Component {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error, info) {
-    // You can log error here if desired
-  }
-
   render() {
     if (this.state.hasError) {
       return (
@@ -26,4 +22,3 @@ export default class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
-

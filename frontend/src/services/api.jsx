@@ -47,7 +47,9 @@ export const verifyAuth = async () => {
 export const ensureCsrf = async () => {
   // Only fetch CSRF if cookie is missing
   if (!getCookie('csrftoken')) {
-    try { await apiClient.get('/csrf/'); } catch (_) {}
+    try { await apiClient.get('/csrf/'); } catch {
+      // Mutating requests will surface the error if CSRF could not be established.
+    }
   }
 };
 
