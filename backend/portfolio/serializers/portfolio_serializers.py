@@ -65,10 +65,21 @@ class PortfolioPerformanceSerializer(serializers.ModelSerializer):
         read_only_fields = ['last_updated']
 
     def get_total_return_percentage(self, obj):
-        if obj.total_deposits and obj.total_deposits > 0:
-            pct = (obj.time_weighted_return / obj.total_deposits) * Decimal('100')
-            return pct.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        return Decimal('0.00')
+        if not obj.total_deposits or obj.total_deposits <= 0:
+            return Decimal('0.00')
+
+        # Deposits and withdrawals are recorded in PEN, while portfolio value
+        # is expressed in the portfolio's base currency.
+        current_value_pen = convert_amount(
+            obj.portfolio.total_value,
+            obj.portfolio.base_currency,
+            'PEN',
+        )
+        net_contributions = obj.total_deposits - obj.total_withdrawals
+        gain = current_value_pen - net_contributions
+        return ((gain / obj.total_deposits) * Decimal('100')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
 
 
 class PortfolioSerializer(serializers.ModelSerializer):
