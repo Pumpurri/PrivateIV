@@ -14,6 +14,12 @@ test('signs in, inspects a generated portfolio, and places a paper trade', async
   await page.getByRole('link', { name: 'Ver detalle' }).click();
   await expect(page.getByText('Valor de la cuenta')).toBeVisible();
   await expect(page.getByLabel('Evolución del balance del portafolio')).toBeVisible();
+  const chartDateLabels = page.getByLabel('Evolución del balance del portafolio')
+    .locator('svg text[text-anchor="middle"]');
+  await expect(chartDateLabels.nth(1)).toBeVisible();
+  const chartDates = await chartDateLabels.allTextContents();
+  expect(chartDates.length).toBeGreaterThan(1);
+  expect(new Set(chartDates).size).toBe(chartDates.length);
 
   if (process.env.SHOWCASE_IMAGE_PATH) {
     await page.screenshot({ path: process.env.SHOWCASE_IMAGE_PATH, fullPage: true });

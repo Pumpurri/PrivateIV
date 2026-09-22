@@ -179,7 +179,7 @@ function formatTooltipValue(value, format, currency) {
   return formatter.format(value);
 }
 
-function formatTickDate(date, spanMs) {
+function formatTickDate(date, spanMs, tickCount) {
   if (!date) return '';
   const spanDays = spanMs / DAY_MS;
   if (spanDays <= 2) {
@@ -196,7 +196,14 @@ function formatTickDate(date, spanMs) {
       month: 'short',
     }).format(date);
   }
-  if (spanDays <= 370) {
+  const tickSpacingDays = spanDays / Math.max(1, tickCount - 1);
+  if (tickSpacingDays < 32) {
+    return new Intl.DateTimeFormat('es-PE', {
+      day: 'numeric',
+      month: 'short',
+    }).format(date);
+  }
+  if (tickSpacingDays < 366) {
     return new Intl.DateTimeFormat('es-PE', {
       month: 'short',
       year: 'numeric',
@@ -763,7 +770,7 @@ const TimeSeriesChart = ({
                   fontSize="11"
                   fill="var(--muted, #64748b)"
                 >
-                  {formatTickDate(tick, spanMs)}
+                  {formatTickDate(tick, spanMs, timeTicks.length)}
                 </text>
               </g>
             );
