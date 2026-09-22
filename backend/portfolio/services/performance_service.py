@@ -1,9 +1,8 @@
+from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
-from django.db import models
-from django.db.models import Sum
 from django.utils import timezone
-from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
 from portfolio.models.transaction import Transaction
+from portfolio.services.currency_service import get_transaction_amount_in_currency
 from .historical_valuation import HistoricalValuationService
 
 class PerformanceCalculator:
@@ -31,26 +30,38 @@ class PerformanceCalculator:
     @staticmethod
     def calculate_time_weighted_return(portfolio, start_date, end_date):
         """
-        Calculates true time-weighted return by geometrically linking daily returns
-        and splitting periods at cash flow events (deposits/withdrawals).
+        Estimate time-weighted return from end-of-day valuations, adjusting each
+        sub-period for deposits and withdrawals on its ending date.
+
+        Exact intraday TWR would require valuations immediately before each flow;
+        those are not available from the daily historical price data.
         """
         if start_date >= end_date:
             return Decimal('0.0000')
 
-        # Fetch all cash flow dates (deposits and withdrawals) within the period
-        cash_flow_dates = Transaction.objects.filter(
+        cash_flows = Transaction.objects.filter(
             portfolio=portfolio,
             timestamp__range=(start_date, end_date),
             transaction_type__in=[
                 Transaction.TransactionType.DEPOSIT,
                 Transaction.TransactionType.WITHDRAWAL
             ]
-        ).annotate(
-            date=models.F('timestamp__date')
-        ).values_list('date', flat=True).distinct().order_by('date')
+        ).order_by('timestamp', 'id')
+
+        net_flows_by_date = defaultdict(lambda: Decimal('0.00'))
+        for cash_flow in cash_flows:
+            flow_date = cash_flow.timestamp.date()
+            amount = get_transaction_amount_in_currency(
+                cash_flow,
+                portfolio.base_currency,
+                snapshot_date=flow_date,
+            )
+            if cash_flow.transaction_type == Transaction.TransactionType.WITHDRAWAL:
+                amount = -amount
+            net_flows_by_date[flow_date] += amount
 
         # Build boundary dates for sub-periods
-        boundary_dates = [start_date.date()] + list(cash_flow_dates) + [end_date.date()]
+        boundary_dates = [start_date.date()] + list(net_flows_by_date) + [end_date.date()]
         unique_dates = sorted(set(boundary_dates))
 
         # Create sub-period ranges
@@ -76,7 +87,10 @@ class PerformanceCalculator:
             if start_value == Decimal('0'):
                 sub_return = Decimal('0')
             else:
-                sub_return = (end_value - start_value) / start_value
+                # The ending valuation includes that day's external cash flow.
+                # Removing it keeps contributions from appearing as returns.
+                external_flow = net_flows_by_date[period_end]
+                sub_return = (end_value - external_flow - start_value) / start_value
             cumulative_return *= (Decimal('1') + sub_return)
 
         # Calculate time-weighted return

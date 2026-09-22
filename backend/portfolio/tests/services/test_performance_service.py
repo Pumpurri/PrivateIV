@@ -1,11 +1,12 @@
 import pytest
 from decimal import Decimal
-from datetime import timedelta
+from datetime import datetime, timedelta
 from django.utils import timezone
 from unittest.mock import patch
 from portfolio.services.performance_service import PerformanceCalculator
 from portfolio.tests.conftest import portfolio_with_history
 from portfolio.tests.factories import TransactionFactory
+from portfolio.models import Transaction
 
 @pytest.mark.django_db
 class TestPerformanceService:
@@ -34,6 +35,65 @@ class TestPerformanceService:
             date
         )
         assert result == Decimal('0.0000')
+
+    @pytest.mark.parametrize(
+        ('transaction_type', 'value_after_flow'),
+        [
+            (Transaction.TransactionType.DEPOSIT, Decimal('11000.00')),
+            (Transaction.TransactionType.WITHDRAWAL, Decimal('9000.00')),
+        ],
+    )
+    def test_external_cash_flows_are_not_returns(self, portfolio, transaction_type, value_after_flow):
+        start = timezone.make_aware(datetime(2025, 1, 1, 12))
+        flow_at = timezone.make_aware(datetime(2025, 7, 1, 12))
+        end = timezone.make_aware(datetime(2026, 1, 1, 12))
+        initial_deposit = portfolio.transactions.get(transaction_type=Transaction.TransactionType.DEPOSIT)
+        Transaction.all_objects.filter(pk=initial_deposit.pk).update(timestamp=start)
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=transaction_type,
+            amount=Decimal('1000.00'),
+            timestamp=flow_at,
+        )
+
+        values = {
+            start.date(): Decimal('10000.00'),
+            flow_at.date(): value_after_flow,
+            end.date(): value_after_flow,
+        }
+        with patch(
+            'portfolio.services.performance_service.HistoricalValuationService.get_historical_value',
+            side_effect=lambda _portfolio, date: values[date],
+        ):
+            result = PerformanceCalculator.calculate_time_weighted_return(portfolio, start, end)
+
+        assert result == Decimal('0.0000')
+
+    def test_growth_after_deposit_is_linked_without_counting_deposit(self, portfolio):
+        start = timezone.make_aware(datetime(2025, 1, 1, 12))
+        flow_at = timezone.make_aware(datetime(2025, 7, 1, 12))
+        end = timezone.make_aware(datetime(2026, 1, 1, 12))
+        initial_deposit = portfolio.transactions.get(transaction_type=Transaction.TransactionType.DEPOSIT)
+        Transaction.all_objects.filter(pk=initial_deposit.pk).update(timestamp=start)
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.DEPOSIT,
+            amount=Decimal('1000.00'),
+            timestamp=flow_at,
+        )
+
+        values = {
+            start.date(): Decimal('10000.00'),
+            flow_at.date(): Decimal('11000.00'),
+            end.date(): Decimal('12100.00'),
+        }
+        with patch(
+            'portfolio.services.performance_service.HistoricalValuationService.get_historical_value',
+            side_effect=lambda _portfolio, date: values[date],
+        ):
+            result = PerformanceCalculator.calculate_time_weighted_return(portfolio, start, end)
+
+        assert result == Decimal('0.1000')
 
     def test_performance_attribution(self, real_loss_portfolio):
         """Test cash vs investment contribution breakdown"""
