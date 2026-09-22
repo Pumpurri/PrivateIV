@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const frontendDir = fileURLToPath(new URL('../', import.meta.url));
 const repositoryDir = path.dirname(frontendDir);
-const temporaryDir = await mkdtemp(path.join(tmpdir(), 'bolsasim-showcase-'));
+const temporaryDir = await mkdtemp(path.join(tmpdir(), 'investment-portfolio-showcase-'));
 const password = randomBytes(24).toString('base64url');
 const python = process.env.PYTHON_BIN || 'python';
 const captureImage = process.argv.includes('--capture-image');

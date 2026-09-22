@@ -8,7 +8,7 @@ test('signs in, inspects a generated portfolio, and places a paper trade', async
   await page.getByRole('button', { name: 'Entrar' }).click();
 
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.getByRole('heading', { name: 'BolsaSim demo' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Investment Portfolio Simulator demo' })).toBeVisible();
   await expect(page.getByText('TWR anual').locator('..')).toContainText('%');
 
   await page.getByRole('link', { name: 'Ver detalle' }).click();

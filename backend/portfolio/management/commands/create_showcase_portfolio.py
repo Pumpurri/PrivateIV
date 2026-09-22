@@ -52,7 +52,7 @@ class Command(BaseCommand):
             call_command(
                 "create_test_portfolio",
                 username=self.EMAIL,
-                portfolio_name="BolsaSim demo",
+                portfolio_name="Investment Portfolio Simulator demo",
                 days=options["days"],
                 transactions=options["transactions"],
                 confirm_disposable=True,

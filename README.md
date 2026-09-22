@@ -1,12 +1,12 @@
-# BolsaSim
+# Investment Portfolio Simulator
 
-A full-stack paper-trading simulator for Peruvian and U.S. markets. It tracks simulated trades, PEN/USD cash wallets, cost basis, and historical portfolio performance through a React client and a Django API.
+A full-stack investment portfolio simulator for Peruvian and U.S. markets. It tracks simulated trades, PEN/USD cash wallets, cost basis, and historical portfolio performance through a React client and a Django API.
 
-[![CI](https://github.com/Pumpurri/paper-trading-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/Pumpurri/paper-trading-simulator/actions/workflows/ci.yml) · [Read-only preview](https://bolsasim.com/preview) · [Run locally](docs/development.md)
+[![CI](https://github.com/Pumpurri/investment-portfolio-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/Pumpurri/investment-portfolio-simulator/actions/workflows/ci.yml) · [Read-only preview](https://bolsasim.com/preview) · [Run locally](docs/development.md)
 
 > **Try it:** Explore the fictional, [read-only preview](https://bolsasim.com/preview). Interactive registration, trading, and current quotes are intentionally offline.
 
-![Authenticated BolsaSim portfolio balances, chart, and cash history with generated local data](docs/images/authenticated-portfolio.png)
+![Authenticated Investment Portfolio Simulator balances, chart, and cash history with generated local data](docs/images/authenticated-portfolio.png)
 
 *The actual authenticated app, captured from a disposable local account with generated trades and prices. This is neither a live portfolio nor current market data.*
 

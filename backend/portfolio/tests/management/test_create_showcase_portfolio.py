@@ -52,7 +52,7 @@ def test_showcase_creates_one_populated_portfolio(monkeypatch):
     assert user.check_password("local-test-password")
     portfolio = Portfolio.objects.get(user=user)
     assert portfolio.is_default
-    assert portfolio.name == "BolsaSim demo"
+    assert portfolio.name == "Investment Portfolio Simulator demo"
     assert Transaction.objects.filter(portfolio=portfolio).count() >= 25
     assert DailyPortfolioSnapshot.objects.filter(portfolio=portfolio).count() >= 35
     assert portfolio.performance.time_weighted_return.is_finite()

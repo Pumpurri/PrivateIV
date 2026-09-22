@@ -66,12 +66,12 @@ const Header = () => {
           onClick={handleBrandClick}
           onKeyDown={onBrandKey}
         >
-          <span className="brand-text">BolsaSim</span> <span className="brand-badge">BETA</span>
+          <span className="brand-text">Investment Portfolio Simulator</span> <span className="brand-badge">BETA</span>
         </a>
         {!isAuthPage && !isAuthenticated && (
           <nav className="row">
             {DEMO_PAUSED ? (
-              <a className="btn primary" href="https://github.com/Pumpurri/paper-trading-simulator">Ver el proyecto</a>
+              <a className="btn primary" href="https://github.com/Pumpurri/investment-portfolio-simulator">Ver el proyecto</a>
             ) : (
               <>
                 <Link className="btn primary" to="/register">Regístrate</Link>

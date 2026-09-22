@@ -1,6 +1,6 @@
 # Frontend
 
-This is the Vite + React frontend for the BolsaSim paper-trading simulator.
+This is the Vite + React frontend for Investment Portfolio Simulator.
 
 Use Node.js 24.15 or newer in the 24.x line; the installed browser-test dependencies do not support Node 18.
 
@@ -39,7 +39,7 @@ Run lint and frontend tests with `npm run lint` and `npm test`. With backend Pyt
 
 ## Static Assets
 
-- Favicon: `public/SB-favicon.png`
+- Favicon: `public/investment-portfolio-simulator-favicon.png`
 - Vite serves files in `public/` from the site root
 
 ## Vercel

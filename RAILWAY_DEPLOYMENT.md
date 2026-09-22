@@ -1,6 +1,6 @@
 # Deployment runbook
 
-BolsaSim's public frontend is hosted on Vercel at [bolsasim.com](https://bolsasim.com/). The Railway API, PostgreSQL, Redis, worker, and beat services are intentionally paused. The public `/preview` page uses fictional data and does not need Railway. Do not start services simply to view the portfolio project.
+Investment Portfolio Simulator's public frontend is hosted on Vercel at [bolsasim.com](https://bolsasim.com/). The Railway API, PostgreSQL, Redis, worker, and beat services are intentionally paused. The public `/preview` page uses fictional data and does not need Railway. Do not start services simply to view the portfolio project.
 
 ## Architecture when the interactive demo is enabled
 

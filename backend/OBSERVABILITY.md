@@ -15,11 +15,11 @@ docker compose -f docker-compose.datadog.yml up -d
 The compose file enables APM and collects container logs. Review that collection and Datadog billing/privacy settings before using it with any real data. Never commit the API key. To trace Django and Celery, run their wrappers from `backend/` in separate terminals:
 
 ```bash
-DD_SERVICE=bolsasim-api DD_ENV=development ./observability/run_apm_django.sh
+DD_SERVICE=investment-portfolio-simulator-api DD_ENV=development ./observability/run_apm_django.sh
 ```
 
 ```bash
-DD_SERVICE=bolsasim-worker DD_ENV=development ./observability/run_apm_celery.sh
+DD_SERVICE=investment-portfolio-simulator-worker DD_ENV=development ./observability/run_apm_celery.sh
 ```
 
 The wrappers set `DD_TRACE_ENABLED=true` and use `ddtrace-run` for automatic instrumentation. Setting `DD_TRACE_ENABLED=true` without a wrapper enables only the app's custom spans, not automatic framework instrumentation.

@@ -22,7 +22,7 @@ def _fetch(url: str) -> str:
         url,
         timeout=20,
         headers={
-            "User-Agent": "privateiv/1.0 (+bcrp)",
+            "User-Agent": "investment-portfolio-simulator/1.0 (+bcrp)",
             "Accept": "application/json,text/csv,text/plain,*/*",
         },
     )
