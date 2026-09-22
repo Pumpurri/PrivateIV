@@ -2,7 +2,7 @@ import pytest
 from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from portfolio.models import Transaction, Holding
+from portfolio.models import Transaction
 from portfolio.tests.factories import TransactionFactory
 from portfolio.services.transaction_service import TransactionService
 from stocks.tests.factories import StockFactory

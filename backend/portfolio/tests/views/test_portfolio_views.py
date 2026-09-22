@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
-from portfolio.models import FXRate, Portfolio, Holding, PortfolioPerformance, Transaction
+from portfolio.models import FXRate, Portfolio, PortfolioPerformance, Transaction
 from portfolio.tests.factories import PortfolioFactory, HoldingFactory, TransactionFactory
 from stocks.tests.factories import StockFactory
 from users.tests.factories import UserFactory
@@ -254,11 +254,11 @@ class TestPortfolioHoldingsView:
         stock2 = StockFactory.create(symbol='MSFT', current_price=Decimal('300.00'))
         portfolio = user.portfolios.first()
         
-        holding1 = HoldingFactory.create(
+        HoldingFactory.create(
             portfolio=portfolio, stock=stock1, quantity=10,
             average_purchase_price=Decimal('140.00')
         )
-        holding2 = HoldingFactory.create(
+        HoldingFactory.create(
             portfolio=portfolio, stock=stock2, quantity=5,
             average_purchase_price=Decimal('280.00')
         )

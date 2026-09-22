@@ -18,10 +18,10 @@ def test_ingest_idempotent_and_session_separation(monkeypatch):
         return ('PD04644PD', d, Decimal('3.750'))
 
     monkeypatch.setattr('portfolio.services.fx_ingest_service.bcrp.resolve_latest_auto', resolve_intraday)
-    out1 = upsert_latest_from_bcrp(mode='intraday')
+    upsert_latest_from_bcrp(mode='intraday')
 
     # Re-run (idempotent)
-    out1b = upsert_latest_from_bcrp(mode='intraday')
+    upsert_latest_from_bcrp(mode='intraday')
 
     # Exactly one row per (date, pair, type, session)
     assert FXRate.objects.filter(date=today, rate_type='compra', session='intraday', base_currency='PEN', quote_currency='USD').count() == 1
@@ -36,7 +36,7 @@ def test_ingest_idempotent_and_session_separation(monkeypatch):
         return ('PD04646PD', d, Decimal('3.760'))
 
     monkeypatch.setattr('portfolio.services.fx_ingest_service.bcrp.resolve_latest_auto', resolve_cierre)
-    out2 = upsert_latest_from_bcrp(mode='cierre')
+    upsert_latest_from_bcrp(mode='cierre')
 
     # Both sessions should now exist
     c_intraday = FXRate.objects.get(date=today, rate_type='compra', session='intraday', base_currency='PEN', quote_currency='USD')
@@ -54,4 +54,3 @@ def test_ingest_idempotent_and_session_separation(monkeypatch):
     assert c_cierre.rate == Decimal('3.710')
     assert v_cierre.rate == Decimal('3.760')
     assert m_cierre.rate == Decimal('3.735')
-

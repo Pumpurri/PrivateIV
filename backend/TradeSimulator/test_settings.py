@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-testing-only')
 
-from .settings import *
+from .settings import *  # noqa: E402,F403
 
 # Test database configuration
 DATABASES = {

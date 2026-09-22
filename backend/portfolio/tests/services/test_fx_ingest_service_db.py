@@ -17,7 +17,7 @@ def test_upsert_latest_from_bcrp_persists_compra_venta_mid(monkeypatch):
 
     monkeypatch.setattr('portfolio.services.fx_ingest_service.bcrp.resolve_latest_auto', fake_resolve)
 
-    out = upsert_latest_from_bcrp(mode='cierre')
+    upsert_latest_from_bcrp(mode='cierre')
 
     today = timezone.now().date()
     compra = FXRate.objects.get(date=today, rate_type='compra', session='cierre', base_currency='PEN', quote_currency='USD')
@@ -31,4 +31,3 @@ def test_upsert_latest_from_bcrp_persists_compra_venta_mid(monkeypatch):
     assert compra.provider == 'BCRP'
     assert venta.provider == 'BCRP'
     assert mid.provider == 'BCRP'
-

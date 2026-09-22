@@ -2,7 +2,6 @@ import pytest
 from datetime import date
 from decimal import Decimal
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
 from django.utils import timezone
 from portfolio.models import FXRate
 from portfolio.services import SnapshotService

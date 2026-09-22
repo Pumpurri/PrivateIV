@@ -5,14 +5,11 @@ from rest_framework import status
 from decimal import Decimal
 from datetime import datetime, timezone as datetime_timezone
 from django.urls import reverse
-from unittest.mock import Mock
-from math import ceil
 from datetime import date
 from django.db import IntegrityError
 from django.utils import timezone
 
 from stocks.models import HistoricalStockPrice, Stock, StockRefreshStatus
-from stocks.tasks import fetch_stock_prices, COMPANIES as companies
 from stocks.serializers import StockSerializer
 from stocks.tests.factories import StockFactory
 
@@ -231,7 +228,7 @@ class TestStockViews:
 
     def test_price_update(self, client, admin_user, sample_stock):
         client.force_authenticate(admin_user)
-        response = client.patch(
+        client.patch(
             reverse('stock-detail', kwargs={'pk': sample_stock.id}),
             {'current_price': 130}
         )
@@ -297,5 +294,3 @@ class TestSecurity:
         assert 'name' in response.data
         assert 'Ensure this field has no more than 100 characters' in str(response.data['name'])
         assert Stock.objects.count() == initial_count
-
-# TODO: Task Tests, Time-Related Tests, check for stuff like concurrency or api call failure

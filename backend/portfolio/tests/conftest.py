@@ -1,14 +1,10 @@
 import pytest
 from decimal import Decimal
-from django.db import transaction
-from portfolio.tests.factories import PortfolioFactory, HoldingFactory, TransactionFactory
+from portfolio.tests.factories import HoldingFactory, TransactionFactory
 from users.tests.factories import UserFactory
-from stocks.models import Stock
-from portfolio.models import Portfolio, Holding, Transaction
 from stocks.tests.factories import StockFactory
 from django.utils import timezone
 from datetime import datetime, time as datetime_time, timezone as datetime_timezone
-import logging
     
 @pytest.fixture
 def stock():
@@ -27,7 +23,6 @@ def portfolio(user_factory):
 
 @pytest.fixture
 def user_factory():
-    from users.tests.factories import UserFactory
     return UserFactory
 
 

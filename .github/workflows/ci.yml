@@ -20,9 +20,11 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r backend/requirements.txt pip-audit
+        run: python -m pip install -r backend/requirements.txt pip-audit ruff==0.16.8
       - name: Check dependencies
         run: pip-audit -r backend/requirements.txt
+      - name: Lint
+        run: ruff check backend
       - name: Run tests
         run: python -m pytest -q
 

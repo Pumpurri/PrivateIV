@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from unittest.mock import patch
 from portfolio.services.performance_service import PerformanceCalculator
-from portfolio.tests.conftest import portfolio_with_history
 from portfolio.tests.factories import TransactionFactory
 from portfolio.models import Transaction
 

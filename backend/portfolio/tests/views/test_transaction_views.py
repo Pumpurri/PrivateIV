@@ -34,7 +34,7 @@ class TestTransactionHistory:
             stock=StockFactory(current_price=Decimal('50.00'), currency='PEN'),
             quantity=100
         )
-        t2 = TransactionFactory(portfolio__user=user2, deposit=True)
+        TransactionFactory(portfolio__user=user2, deposit=True)
 
         self.client.force_authenticate(user=user1)
         response = self.client.get(reverse('transaction-list'))

@@ -1,8 +1,6 @@
 import factory
 from factory import SelfAttribute
 from users.models import CustomUser
-from portfolio.models import Portfolio
-from portfolio.tests.factories import PortfolioFactory
 
 class UserFactory(factory.django.DjangoModelFactory):
     class Meta:

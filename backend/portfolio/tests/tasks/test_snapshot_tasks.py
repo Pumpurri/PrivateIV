@@ -16,7 +16,7 @@ class TestSnapshotTasks:
         from portfolio.models import Portfolio
         Portfolio.objects.all().delete()
         
-        user = UserFactory()
+        UserFactory()
         
         create_daily_snapshots()
         assert DailyPortfolioSnapshot.objects.count() == 1

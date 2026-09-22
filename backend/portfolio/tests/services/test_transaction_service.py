@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from users.tests.factories import UserFactory
-from portfolio.tests.factories import TransactionFactory, PortfolioFactory
+from portfolio.tests.factories import TransactionFactory
 from portfolio.models import RealizedPNL, FXRate, Transaction
 from portfolio.services.transaction_service import TransactionService
 from stocks.models import Stock
@@ -161,7 +161,7 @@ class TestTransactionPNLHandling:
         stock.current_price = Decimal('50.00')
         stock.save()
 
-        buy = TransactionFactory(
+        TransactionFactory(
             portfolio=portfolio,
             transaction_type='BUY',
             stock=stock,

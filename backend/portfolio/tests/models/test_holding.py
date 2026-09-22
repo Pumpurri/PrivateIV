@@ -1,6 +1,6 @@
 import pytest
 from decimal import Decimal
-from django.db import transaction, IntegrityError
+from django.db import IntegrityError
 from django.core.exceptions import ValidationError
 from portfolio.models import Holding
 from portfolio.tests.factories import HoldingFactory, PortfolioFactory

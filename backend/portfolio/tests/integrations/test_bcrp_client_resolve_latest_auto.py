@@ -1,6 +1,5 @@
 import pytest
 from decimal import Decimal
-from django.utils import timezone
 
 from portfolio.integrations import bcrp_client as bcrp
 

@@ -141,7 +141,7 @@ class TestPortfolioValuation:
 
     def test_updated_valuation_after_price_change(self, portfolio, sample_stock):
         """Test valuation updates when stock prices change"""
-        holding = HoldingFactory.create(
+        HoldingFactory.create(
             portfolio=portfolio,
             stock=sample_stock,
             quantity=100,
@@ -261,14 +261,13 @@ class TestPortfolioValuation:
         assert transaction.executed_price == stock.current_price
 
     def test_updates_value_when_stock_prices_change(self, portfolio, sample_stock):
-        holding = HoldingFactory.create(
+        HoldingFactory.create(
             portfolio=portfolio,
             stock=sample_stock,
             quantity=100,
             average_purchase_price=sample_stock.current_price
         )
         
-        original_value = portfolio.investment_value
         new_price = sample_stock.current_price * Decimal('2')
         sample_stock.current_price = new_price
         sample_stock.save()

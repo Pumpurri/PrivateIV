@@ -8,7 +8,6 @@ from portfolio.services.snapshot_service import SnapshotService
 from portfolio.services.currency_service import convert_amount
 from portfolio.models.fx_rate import FXRate
 from stocks.models import Stock
-from portfolio.models import Holding
 from portfolio.tests.factories import TransactionFactory
 
 

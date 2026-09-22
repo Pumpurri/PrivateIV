@@ -1,8 +1,7 @@
 import pytest
 from decimal import Decimal
 from django.core.exceptions import ValidationError
-from portfolio.models import RealizedPNL, Portfolio
-from portfolio.tests.conftest import portfolio_with_holding
+from portfolio.models import RealizedPNL
 from portfolio.tests.factories import TransactionFactory
 
 @pytest.mark.django_db
@@ -57,7 +56,7 @@ class TestRealizedPNLModel:
         stock = StockFactory(current_price=Decimal('100.00'), currency='PEN')
         
         # Create holding and sell transaction on non-default portfolio
-        holding = HoldingFactory(
+        HoldingFactory(
             portfolio=test_portfolio,
             stock=stock,
             quantity=100,
