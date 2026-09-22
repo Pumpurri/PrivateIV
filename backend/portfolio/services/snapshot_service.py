@@ -258,7 +258,7 @@ class SnapshotService:
         """Creates daily snapshot with robust error handling and retries."""
         from portfolio.models.portfolio import Portfolio
         snapshot_date = date or timezone.now().date()
-        with span("snapshot.daily", resource=str(portfolio.pk), tags={"date": str(snapshot_date)}), transaction.atomic():
+        with span("snapshot.daily"), transaction.atomic():
             try:
                 locked_portfolio = Portfolio.objects.select_for_update().get(pk=portfolio.pk)
                 

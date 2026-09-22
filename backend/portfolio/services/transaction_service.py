@@ -18,13 +18,7 @@ class TransactionService:
         transaction_data = dict(transaction_data)
         transaction_data['idempotency_key'] = transaction_data.get('idempotency_key') or uuid4()
 
-        with span(
-            "transaction.execute",
-            resource=str(transaction_data.get('transaction_type')),
-            tags={
-                "portfolio.id": getattr(transaction_data.get('portfolio'), 'id', None),
-            }
-        ), db_transaction.atomic(using='default'):
+        with span("transaction.execute"), db_transaction.atomic(using='default'):
             existing = Transaction.all_objects.filter(
                 portfolio=transaction_data['portfolio'],
                 idempotency_key=transaction_data['idempotency_key']
@@ -39,7 +33,7 @@ class TransactionService:
             transaction.full_clean()
 
             handler = cls._get_transaction_handler(transaction.transaction_type)
-            with span("transaction.process", resource=transaction.transaction_type):
+            with span("transaction.process"):
                 handler(transaction)
             transaction.save()
             
@@ -127,7 +121,7 @@ class TransactionService:
         transaction.cash_currency = settlement_currency
         transaction.fx_rate = pen_per_usd_rate
         transaction.fx_rate_type = fx_rate_type
-        with span("transaction.buy", resource=str(stock.symbol), tags={"quantity": quantity}):
+        with span("transaction.buy"):
             portfolio.adjust_cash(-settlement_amount, currency=settlement_currency)
             portfolio.holdings.process_purchase(
                 portfolio=portfolio,
@@ -184,7 +178,7 @@ class TransactionService:
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
 
-        with span("transaction.sell", resource=str(stock.symbol), tags={"quantity": quantity}):
+        with span("transaction.sell"):
             portfolio.holdings.process_sale(
                 portfolio=portfolio,
                 stock=stock,
@@ -217,7 +211,7 @@ class TransactionService:
             portfolio=portfolio
         )
         
-        with span("transaction.deposit", resource=str(portfolio.id), tags={"amount": str(amount)}):
+        with span("transaction.deposit"):
             portfolio.adjust_cash(amount, currency=cash_currency)
         performance.total_deposits += cls._convert_original_to_pen_amount(amount, cash_currency, pen_per_usd_rate)
         performance.save(update_fields=['total_deposits'])
@@ -238,7 +232,7 @@ class TransactionService:
             portfolio=portfolio
         )
         
-        with span("transaction.withdrawal", resource=str(portfolio.id), tags={"amount": str(amount)}):
+        with span("transaction.withdrawal"):
             portfolio.adjust_cash(-amount, currency=cash_currency)
         performance.total_withdrawals += cls._convert_original_to_pen_amount(amount, cash_currency, pen_per_usd_rate)
         performance.save(update_fields=['total_withdrawals'])
@@ -271,7 +265,7 @@ class TransactionService:
             pen_per_usd_rate=pen_per_usd_rate,
         )
 
-        with span("transaction.convert", resource=str(portfolio.id), tags={"amount": str(amount)}):
+        with span("transaction.convert"):
             portfolio.adjust_cash(-amount, currency=source_currency)
             portfolio.adjust_cash(converted_amount, currency=target_currency)
 
