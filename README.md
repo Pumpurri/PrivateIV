@@ -17,6 +17,12 @@ The screenshot is an illustrative, read-only view with fictional holdings—not 
 - **Scheduled ingestion:** Celery workers update market prices, exchange rates, benchmarks, and snapshots; the app records refresh status rather than presenting scheduled quotes as a real-time feed.
 - **Verification:** backend tests, frontend lint/build, and dependency audits run in CI.
 
+Under the hood:
+
+- **Trade-time FX, not today's rate:** [settlement](backend/portfolio/services/transaction_service.py) records the native execution price and FX rate; [replay](backend/portfolio/services/trade_basis_service.py) uses those records to reconstruct base-currency positions and realized P&L. [Tests](backend/portfolio/tests/services/test_trade_basis_service.py)
+- **History from transactions:** [snapshots](backend/portfolio/services/snapshot_service.py) reconstruct PEN and USD wallets separately, then value them at the snapshot date. [Tests](backend/portfolio/tests/services/test_snapshot_service.py)
+- **Fail-closed repairs:** the [cost-basis audit](backend/portfolio/management/commands/repair_trade_basis.py) defaults to dry-run and refuses missing FX rates or mismatched quantities rather than inventing values. [Tests](backend/portfolio/tests/management/test_repair_trade_basis.py)
+
 The project is educational: it does not execute real trades or provide investment advice. Time-weighted return uses end-of-day valuations and is an estimate, not exact intraday TWR.
 
 ## Features
@@ -143,6 +149,16 @@ npm run dev
 ```
 
 Open `http://localhost:5173` in your browser.
+
+To explore the authenticated dashboard without provider credentials, register a local-only user, then populate a **disposable development database** with generated trades, historical prices, and snapshots:
+
+```bash
+cd backend
+python manage.py create_test_portfolio --username you@example.com \
+  --days 90 --transactions 60 --confirm-disposable
+```
+
+The command requires `DEBUG=True`. The screenshot above remains the separate illustrative public preview, not a capture of this seeded account.
 
 ## Market data and background jobs
 
