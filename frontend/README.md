@@ -9,11 +9,11 @@ Use Node.js 24.15 or newer in the 24.x line; the installed browser-test dependen
 From the `frontend/` directory:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Required environment variable:
+The default `/api` URL is proxied to local Django at `http://localhost:8000`; no frontend `.env` file is required for local development. To target another backend, set:
 
 ```env
 VITE_API_URL=http://localhost:8000/api
@@ -27,11 +27,15 @@ VITE_API_URL=https://your-backend-domain/api
 
 Production builds default to a read-only preview while the hosted backend is paused. In this mode, `/login` and `/register` show a pause notice rather than collecting credentials. The public `/preview` route uses fictional data and makes no API request. When the backend is available again, set `VITE_DEMO_PAUSED=false` for the production build and redeploy.
 
+See the [local development guide](../docs/development.md) for backend setup and the disposable authenticated browser test.
+
 ## Build
 
 ```bash
 npm run build
 ```
+
+Run lint and frontend tests with `npm run lint` and `npm test`. With backend Python dependencies and Playwright Chromium installed, `npm run test:e2e` exercises login, balances, and a paper trade against a temporary local database.
 
 ## Static Assets
 
