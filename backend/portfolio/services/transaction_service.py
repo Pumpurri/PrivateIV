@@ -118,9 +118,10 @@ class TransactionService:
             settlement_currency=settlement_currency,
             pen_per_usd_rate=pen_per_usd_rate,
         )
-        price_per_share_base = cls._convert_original_to_pen_amount(
+        price_per_share_base = cls._convert_original_to_base_amount(
             current_price,
             original_currency=original_currency,
+            base_currency=portfolio.base_currency,
             pen_per_usd_rate=pen_per_usd_rate,
         )
         transaction.cash_currency = settlement_currency
@@ -169,9 +170,10 @@ class TransactionService:
             settlement_currency=settlement_currency,
             pen_per_usd_rate=pen_per_usd_rate,
         )
-        sell_price_base = cls._convert_original_to_pen_amount(
+        sell_price_base = cls._convert_original_to_base_amount(
             current_price,
             original_currency=original_currency,
+            base_currency=portfolio.base_currency,
             pen_per_usd_rate=pen_per_usd_rate,
         )
         transaction.cash_currency = settlement_currency
@@ -389,6 +391,15 @@ class TransactionService:
             amount,
             original_currency,
             'PEN',
+            pen_per_usd_rate,
+        )
+
+    @classmethod
+    def _convert_original_to_base_amount(cls, amount, *, original_currency, base_currency, pen_per_usd_rate):
+        return convert_with_pen_per_usd_rate(
+            amount,
+            original_currency,
+            base_currency,
             pen_per_usd_rate,
         )
 

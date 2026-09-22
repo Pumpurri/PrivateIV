@@ -316,6 +316,62 @@ class TestTransactionPNLHandling:
         assert pnl.sell_price == Decimal('42.00')
         assert pnl.pnl == Decimal('8.00')
 
+    @pytest.mark.parametrize(
+        ('stock_currency', 'buy_price', 'sell_price'),
+        [
+            ('USD', Decimal('10.00'), Decimal('12.00')),
+            ('PEN', Decimal('35.00'), Decimal('42.00')),
+        ],
+    )
+    def test_usd_base_portfolio_stores_cost_and_pnl_in_usd(
+        self, portfolio, stock, set_fx_market_now, stock_currency, buy_price, sell_price
+    ):
+        portfolio.base_currency = 'USD'
+        portfolio.cash_balance_usd = Decimal('1000.00')
+        portfolio.save(update_fields=['base_currency', 'cash_balance_usd'])
+        stock.currency = stock_currency
+        stock.current_price = buy_price
+        stock.save(update_fields=['currency', 'current_price'])
+
+        today = timezone.now().date()
+        set_fx_market_now(today)
+        for rate_type in ('mid', 'compra', 'venta'):
+            FXRate.objects.create(
+                date=today,
+                base_currency='PEN',
+                quote_currency='USD',
+                rate=Decimal('3.50'),
+                rate_type=rate_type,
+                session='cierre',
+            )
+
+        TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='BUY',
+            stock=stock,
+            quantity=2,
+            cash_currency='USD',
+        )
+        holding = portfolio.holdings.get(stock=stock)
+        assert holding.average_purchase_price == Decimal('10.00')
+
+        stock.current_price = sell_price
+        stock.save(update_fields=['current_price'])
+        assert holding.gain_loss == Decimal('4.00')
+        assert holding.current_value == Decimal('24.00')
+        assert portfolio.current_investment_value == Decimal('24.00')
+
+        sell = TransactionFactory(
+            portfolio=portfolio,
+            transaction_type='SELL',
+            stock=stock,
+            quantity=2,
+            cash_currency='USD',
+        )
+        assert sell.realized_pnl.purchase_price == Decimal('10.00')
+        assert sell.realized_pnl.sell_price == Decimal('12.00')
+        assert sell.realized_pnl.pnl == Decimal('4.00')
+
     def test_realized_pnl_is_immutable(self, sell_transaction):
         pnl = sell_transaction.realized_pnl
         pnl.pnl = Decimal('99999.99')

@@ -127,7 +127,16 @@ class PortfolioSerializer(serializers.ModelSerializer):
         return obj.holdings.filter(is_active=True).count()
 
     def validate_base_currency(self, value):
-        return normalize_currency(value)
+        currency = normalize_currency(value)
+        if (
+            self.instance
+            and currency != self.instance.base_currency
+            and self.instance.transactions.exists()
+        ):
+            raise serializers.ValidationError(
+                'Base currency cannot be changed after transactions exist.'
+            )
+        return currency
 
     def validate_reporting_currency(self, value):
         return normalize_currency(value)

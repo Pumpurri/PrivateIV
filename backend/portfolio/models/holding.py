@@ -115,7 +115,7 @@ class Holding(models.Model):
         else:
             price_base = price
 
-        # average_purchase_price is already in base currency (PEN)
+        # average_purchase_price is stored in the portfolio's base currency.
         return (price_base - self.average_purchase_price) * Decimal(self.quantity)
 
     class Meta:

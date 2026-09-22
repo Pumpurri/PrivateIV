@@ -84,6 +84,23 @@ def test_fx_rate_missing_raises_when_required():
         get_fx_rate(today, 'PEN', 'USD', rate_type='compra', session='cierre', require_rate=True)
 
 
+@pytest.mark.django_db
+def test_usd_base_valuation_uses_reciprocal_pen_per_usd_rate():
+    today = timezone.now().date()
+    FXRate.objects.create(
+        date=today,
+        base_currency='PEN',
+        quote_currency='USD',
+        rate=Decimal('4.000000'),
+        rate_type='mid',
+        session='cierre',
+    )
+
+    rate = get_fx_rate(today, 'USD', 'PEN', rate_type='mid', session='cierre', require_rate=True)
+
+    assert rate == Decimal('0.25')
+
+
 def test_current_fx_context_uses_market_timezone_when_app_timezone_is_utc(settings):
     settings.TIME_ZONE = 'UTC'
     settings.FX_MARKET_TIME_ZONE = 'America/Lima'

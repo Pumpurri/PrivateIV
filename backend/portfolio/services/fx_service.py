@@ -64,6 +64,21 @@ def get_fx_rate(snapshot_date, base_currency, quote_currency, rate_type='compra'
     if base_currency == quote_currency:
         return Decimal('1')
 
+    # Ingestion stores the PEN-per-USD pair. Valuations for a USD-base
+    # portfolio need its reciprocal to convert PEN holdings into USD.
+    if base_currency == 'USD' and quote_currency == 'PEN':
+        pen_per_usd = get_fx_rate(
+            snapshot_date,
+            'PEN',
+            'USD',
+            rate_type=rate_type,
+            session=session,
+            require_rate=require_rate,
+        )
+        if pen_per_usd == 0:
+            raise ValidationError('FX rate cannot be zero')
+        return Decimal('1') / pen_per_usd
+
     try:
         FXRate = apps.get_model('portfolio', 'FXRate')
 
