@@ -2,6 +2,8 @@
 
 This is the Vite + React frontend for PrivateIV / BolsaSim.
 
+Use Node.js 24.15 or newer in the 24.x line; the installed browser-test dependencies do not support Node 18.
+
 ## Local Development
 
 From the `frontend/` directory:

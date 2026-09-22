@@ -70,7 +70,7 @@ The backend is split into three Django apps:
 ### Prerequisites
 
 - Python 3.11
-- Node.js 18 or newer and npm
+- Node.js 24.15 or newer in the 24.x line, and npm (required by the frontend test dependencies)
 - PostgreSQL
 - Redis, if you want to run background or scheduled jobs
 
