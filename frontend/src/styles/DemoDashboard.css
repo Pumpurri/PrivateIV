@@ -35,6 +35,7 @@
 .preview-positions td:first-child { display: grid; gap: 2px; }
 .preview-positions td small { color: #8da1bf; }
 .preview-positions .preview-positive { color: #64dda6; font-weight: 700; }
+.preview-scroll-hint { display: none; color: #a9bcd9; font-size: 12px; margin: 0 0 8px; }
 .preview-links { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
 @media (max-width: 760px) {
   .preview-page { padding: 24px 16px 44px; }
@@ -42,4 +43,6 @@
   .preview-badge { width: fit-content; }
   .preview-toolbar { flex-wrap: wrap; }
   .preview-metrics, .preview-grid { grid-template-columns: 1fr; }
+  .preview-scroll-hint { display: block; }
+  .preview-table-wrap { scrollbar-color: #4d6b99 #101a2d; }
 }

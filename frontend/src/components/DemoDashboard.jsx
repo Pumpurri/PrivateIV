@@ -77,7 +77,8 @@ export default function DemoDashboard() {
 
         <section className="preview-card preview-positions">
           <div className="preview-section-title"><h2>Posiciones</h2><span>Ejemplo ilustrativo</span></div>
-          <div className="preview-table-wrap">
+          <p className="preview-scroll-hint">Desliza para ver todas las columnas <span aria-hidden="true">→</span></p>
+          <div className="preview-table-wrap" tabIndex="0" aria-label="Tabla de posiciones; desliza horizontalmente para ver todas las columnas">
             <table>
               <thead><tr><th>Activo</th><th>Cantidad</th><th>Precio</th><th>Valor</th><th>G/P</th></tr></thead>
               <tbody>

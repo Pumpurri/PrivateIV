@@ -12,5 +12,6 @@ it('labels the public dashboard preview as fictional and read-only', () => {
   expect(screen.getByText('Datos ficticios · Solo lectura')).not.toBeNull();
   expect(screen.getByText('S/ 30,080.50')).not.toBeNull();
   expect(screen.getAllByRole('row')).toHaveLength(5);
+  expect(screen.getByText(/Desliza para ver todas las columnas/)).not.toBeNull();
   expect(screen.queryByRole('textbox')).toBeNull();
 });
