@@ -102,7 +102,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Operational smoke test passed."))
 
     def _check_healthz(self):
-        response = Client().get(reverse("healthz"))
+        response = Client(HTTP_HOST=self._client_host()).get(reverse("healthz"))
         if response.status_code != 200:
             raise CommandError(f"healthz failed with {response.status_code}: {response.content!r}")
 
@@ -161,7 +161,7 @@ class Command(BaseCommand):
         }
 
     def _run_auth_and_trading_flow(self):
-        client = APIClient()
+        client = APIClient(HTTP_HOST=self._client_host())
         token = uuid4().hex[:8]
         email = f"smoke-{token}@example.com"
         password = "SmokePass123!"
@@ -261,6 +261,15 @@ class Command(BaseCommand):
                 "dashboard_portfolios": len(dashboard_payload["portfolios"]),
             },
         }
+
+    @staticmethod
+    def _client_host():
+        # Django's test client defaults to "testserver", which need not be an
+        # allowed host in an actual deployment or a production-like CI job.
+        return next(
+            (host.lstrip(".") for host in settings.ALLOWED_HOSTS if host and host != "*"),
+            "localhost",
+        )
 
     def _check_snapshot_generation(self, portfolio):
         today = date.today()

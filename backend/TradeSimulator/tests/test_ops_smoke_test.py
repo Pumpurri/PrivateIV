@@ -2,12 +2,14 @@ import io
 
 import pytest
 from django.core.management import call_command
+from django.test import override_settings
 
 from portfolio.management.commands.ops_smoke_test import Command
 from portfolio.models import BenchmarkPrice
 
 
 @pytest.mark.django_db
+@override_settings(ALLOWED_HOSTS=["localhost"])
 def test_ops_smoke_test_runs_end_to_end_with_stubbed_ops_checks(monkeypatch):
     monkeypatch.setattr(Command, "_check_worker", lambda self: {"responders": ["worker@smoke"]})
     monkeypatch.setattr(
