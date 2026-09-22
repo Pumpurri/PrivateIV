@@ -1,12 +1,23 @@
-# PrivateIV
+# BolsaSim (PrivateIV)
 
-PrivateIV is a full-stack investment simulator for building and tracking virtual portfolios across the Peruvian and U.S. markets. The user-facing application is branded as **BolsaSim** and is designed for educational use: it combines simulated trading, PEN/USD cash management, live market data, historical valuations, and portfolio performance analytics in one responsive dashboard.
+A full-stack paper-trading simulator for Peruvian and U.S. markets. It tracks simulated trades, PEN/USD cash wallets, historical portfolio value, and performance in a React dashboard backed by Django, PostgreSQL, and Celery.
 
-> PrivateIV is an educational simulator. It does not execute real trades or provide investment advice.
+[![CI](https://github.com/Pumpurri/PrivateIV/actions/workflows/ci.yml/badge.svg)](https://github.com/Pumpurri/PrivateIV/actions/workflows/ci.yml)
 
-> **Demo status:** The hosted Railway backend and background workers are intentionally paused. The frontend can be previewed, but sign-in, trading, and live market data will not work until the backend is redeployed.
+> **Demo status:** The hosted backend and background workers are intentionally paused. Explore the [read-only preview](https://bolsasim.com/preview) with clearly labeled synthetic data; registration, trading, and live quotes are unavailable until the backend is redeployed.
 
-![BolsaSim landing page captured from a local frontend run](docs/images/landing.png)
+![Illustrative BolsaSim portfolio dashboard with synthetic holdings and balances](docs/images/dashboard-preview.png)
+
+The screenshot is an illustrative, read-only view with fictional holdings—not a live portfolio or current market data.
+
+## Engineering highlights
+
+- **Currency-aware trading:** PEN and USD wallets, transaction-time settlement rates, and holdings cost basis in the portfolio's base currency.
+- **Reproducible history:** transactions feed daily snapshots, historical cash reconstruction, and portfolio performance calculations.
+- **Scheduled ingestion:** Celery workers update market prices, exchange rates, benchmarks, and snapshots; the app records refresh status rather than presenting scheduled quotes as a real-time feed.
+- **Verification:** backend tests, frontend lint/build, and dependency audits run in CI.
+
+The project is educational: it does not execute real trades or provide investment advice. Time-weighted return uses end-of-day valuations and is an estimate, not exact intraday TWR.
 
 ## Features
 
@@ -17,7 +28,7 @@ PrivateIV is a full-stack investment simulator for building and tracking virtual
 - Current positions, cost basis, unrealized and realized profit/loss
 - Historical portfolio snapshots and time-weighted return (TWR)
 - Performance comparisons against configurable market benchmarks
-- Market data for Bolsa de Valores de Lima (BVL) and U.S. securities
+- Scheduled market-data ingestion for Bolsa de Valores de Lima (BVL) and U.S. securities
 - PEN/USD exchange-rate ingestion from Banco Central de Reserva del Perú (BCRP)
 - Scheduled price, FX, snapshot, and performance updates with Celery
 - Responsive React dashboard with Vercel Analytics and Speed Insights support
@@ -214,6 +225,7 @@ Keep secrets in local or hosting-platform environment variables. Do not commit `
 The repository includes deployment configuration for the intended split architecture:
 
 - Deploy `frontend/` to Vercel. Use `npm run build`, publish `dist/`, and set `VITE_API_URL` to the public backend URL ending in `/api`.
+- Production builds default to preview-only mode while the backend is paused. Set `VITE_DEMO_PAUSED=false` and redeploy the frontend only after the backend is available again.
 - Deploy `backend/` to Railway with PostgreSQL and Redis services. Run separate web, Celery worker, and Celery beat processes with the same backend environment variables.
 - Add the deployed frontend origin to both `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`.
 

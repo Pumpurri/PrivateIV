@@ -23,6 +23,8 @@ For production, `VITE_API_URL` should point to the backend API root, for example
 VITE_API_URL=https://your-backend-domain/api
 ```
 
+Production builds default to a read-only preview while the hosted backend is paused. In this mode, `/login` and `/register` show a pause notice rather than collecting credentials. The public `/preview` route uses fictional data and makes no API request. When the backend is available again, set `VITE_DEMO_PAUSED=false` for the production build and redeploy.
+
 ## Build
 
 ```bash
