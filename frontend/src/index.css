@@ -32,6 +32,14 @@ body {
 a { color: var(--primary); text-decoration: none; }
 a:hover { color: var(--primary-600); }
 
+.demo-notice {
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(59, 130, 246, .35);
+  background: rgba(37, 99, 235, .16);
+  color: var(--text);
+  text-align: center;
+}
+
 .app-shell {
   display: flex; min-height: 100vh;
 }

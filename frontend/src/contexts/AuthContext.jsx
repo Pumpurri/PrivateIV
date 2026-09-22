@@ -1,16 +1,18 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { verifyAuth } from '../services/api';
+import { DEMO_PAUSED } from '../config/demo';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(DEMO_PAUSED ? false : null);
+  const [isLoading, setIsLoading] = useState(!DEMO_PAUSED);
   const [user, setUser] = useState(null);
   const authCheckPromiseRef = useRef(null);
   const authStateVersionRef = useRef(0);
 
   const checkAuth = useCallback(async () => {
+    if (DEMO_PAUSED) return false;
     if (authCheckPromiseRef.current) {
       return authCheckPromiseRef.current;
     }
@@ -51,7 +53,7 @@ export const AuthProvider = ({ children }) => {
 
   // Check auth on mount
   useEffect(() => {
-    void checkAuth();
+    if (!DEMO_PAUSED) void checkAuth();
   }, [checkAuth]);
 
   // Call this after successful login/register

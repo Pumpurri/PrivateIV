@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { clearCSRFToken } from '../services/axios';
 import { useAuth } from '../contexts/AuthContext';
 import { logoutUser } from '../services/api';
+import { DEMO_PAUSED } from '../config/demo';
 
 const Header = () => {
   const location = useLocation();
@@ -69,8 +70,14 @@ const Header = () => {
         </a>
         {!isAuthPage && !isAuthenticated && (
           <nav className="row">
-            <Link className="btn primary" to="/register">Regístrate</Link>
-            <Link className="nav-link" to="/login">Iniciar sesión</Link>
+            {DEMO_PAUSED ? (
+              <a className="btn primary" href="https://github.com/Pumpurri/PrivateIV">Ver el proyecto</a>
+            ) : (
+              <>
+                <Link className="btn primary" to="/register">Regístrate</Link>
+                <Link className="nav-link" to="/login">Iniciar sesión</Link>
+              </>
+            )}
           </nav>
         )}
         {isAuthenticated && (

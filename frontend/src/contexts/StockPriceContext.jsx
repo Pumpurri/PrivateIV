@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { getAllStocks, getStocksLastRefresh } from '../services/api';
+import { DEMO_PAUSED } from '../config/demo';
 
 const StockPriceContext = createContext();
 const CACHE_DURATION = 14 * 60 * 1000; // 14 minutes
@@ -16,7 +17,7 @@ export const useStockPrices = () => {
 
 export const StockPriceProvider = ({ children }) => {
   const [stocks, setStocks] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!DEMO_PAUSED);
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(0);
   const [lastBackendRefresh, setLastBackendRefresh] = useState(null);
@@ -34,6 +35,7 @@ export const StockPriceProvider = ({ children }) => {
   }, [lastBackendRefresh]);
 
   const fetchStocks = useCallback(async (force = false) => {
+    if (DEMO_PAUSED) return;
     const now = Date.now();
     const cacheAge = now - lastFetch;
 
@@ -67,6 +69,7 @@ export const StockPriceProvider = ({ children }) => {
 
   // Initial fetch
   useEffect(() => {
+    if (DEMO_PAUSED) return;
     if (initialFetchRef.current) return;
     initialFetchRef.current = true;
     fetchStocks(true);
@@ -74,6 +77,7 @@ export const StockPriceProvider = ({ children }) => {
 
   // Cache duration fallback refresh
   useEffect(() => {
+    if (DEMO_PAUSED) return;
     const interval = setInterval(() => {
       const now = Date.now();
       const cacheAge = now - lastFetch;
@@ -86,6 +90,7 @@ export const StockPriceProvider = ({ children }) => {
 
   // Poll backend refresh timestamp to stay aligned with ingest cadence
   useEffect(() => {
+    if (DEMO_PAUSED) return;
     let cancelled = false;
 
     const checkRefresh = async () => {

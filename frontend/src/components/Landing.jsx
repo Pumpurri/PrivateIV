@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { DEMO_PAUSED } from '../config/demo';
 
 const Landing = () => {
   const [isVisible, setIsVisible] = useState({});
@@ -131,6 +132,12 @@ const Landing = () => {
     <div className="landing-root min-h-screen">
       {/* Shared header is rendered by SiteLayout */}
 
+      {DEMO_PAUSED && (
+        <div className="demo-notice" role="status">
+          La demo interactiva está en pausa: el servidor está apagado. Puedes explorar el código y las capturas en GitHub.
+        </div>
+      )}
+
       {/* Hero */}
       <section className="hero">
         <div className="container">
@@ -144,9 +151,15 @@ const Landing = () => {
               <div className="transform-gpu -translate-y-2 md:-translate-y-3">
                 <span className="pill">Suite de Simulación de Inversión</span>
                 <h1 className="hero-title neon text-4xl md:text-5xl lg:text-6xl leading-tight">Simula tus inversiones en la BVL</h1>
-                <p className="hero-sub text-lg md:text-xl mt-3 md:mt-4">El simulador es GRATIS para unirse y usarlo</p>
+                <p className="hero-sub text-lg md:text-xl mt-3 md:mt-4">
+                  {DEMO_PAUSED ? 'Explora cómo funciona el simulador mientras la demo está en pausa.' : 'El simulador es GRATIS para unirse y usarlo'}
+                </p>
                 <div className="row justify-center md:justify-start" style={{ gap: 12, marginTop: 12 }}>
-                  <Link className="btn primary transform-gpu scale-105 md:scale-110" to="/register">Regístrate</Link>
+                  {DEMO_PAUSED ? (
+                    <a className="btn primary transform-gpu scale-105 md:scale-110" href="https://github.com/Pumpurri/PrivateIV">Ver el proyecto</a>
+                  ) : (
+                    <Link className="btn primary transform-gpu scale-105 md:scale-110" to="/register">Regístrate</Link>
+                  )}
                 </div>
               </div>
               
