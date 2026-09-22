@@ -15,6 +15,7 @@ from portfolio.services.currency_service import convert_amount, get_transaction_
 from portfolio.services.fx_service import get_fx_rate
 from django.core.cache import cache
 from portfolio.services.tracing import span
+from portfolio.services.trade_basis_service import replay_trade_basis
 
 logger = logging.getLogger(__name__)
 
@@ -202,8 +203,8 @@ class SnapshotService:
     @classmethod
     def _get_historical_holdings(cls, portfolio, snapshot_date):
         """Reconstruct portfolio holdings as of snapshot date using transaction history"""
-        cache_version_key = f"holdings_version_{portfolio.pk}"
-        cache_key = f"hist_hold_{portfolio.pk}_{snapshot_date}"
+        cache_version_key = f"holdings_version_v2_{portfolio.pk}"
+        cache_key = f"hist_hold_v2_{portfolio.pk}_{snapshot_date}"
         
         # Use both latest timestamp and transaction count so cache invalidation
         # still works when multiple transactions share the same timestamp.
@@ -225,8 +226,6 @@ class SnapshotService:
         if cached and cached.get('cache_token') == cache_token:
             return cached['holdings']
     
-        holdings = {}  # {stock_id: {quantity, total_cost, average_price}}
-
         transactions = (
             Transaction.objects.filter(
                 portfolio=portfolio,
@@ -238,42 +237,9 @@ class SnapshotService:
                 stock__isnull=False
             )
             .select_related('stock')
-            .order_by('timestamp')
+            .order_by('timestamp', 'id')
         )
-
-        for txn in transactions:
-            stock_id = txn.stock.id
-            if stock_id not in holdings:
-                holdings[stock_id] = {
-                    'quantity': 0,
-                    'total_cost': Decimal('0.00'),
-                    'average_price': Decimal('0.00')
-                }
-                
-            current = holdings[stock_id]
-            
-            if txn.transaction_type == Transaction.TransactionType.BUY:
-                new_quantity = current['quantity'] + txn.quantity
-                new_total_cost = current['total_cost'] + (txn.executed_price * txn.quantity)
-                new_avg = (new_total_cost / new_quantity).quantize(Decimal('0.01'), ROUND_HALF_UP) if new_quantity > 0 else Decimal('0.00')
-                
-                holdings[stock_id] = {
-                    'quantity': new_quantity,
-                    'total_cost': new_total_cost,
-                    'average_price': new_avg
-                }
-                
-            elif txn.transaction_type == Transaction.TransactionType.SELL:
-                if current['quantity'] >= txn.quantity:
-                    new_quantity = current['quantity'] - txn.quantity
-                    holdings[stock_id] = {
-                        'quantity': new_quantity,
-                        'total_cost': current['average_price'] * new_quantity,
-                        'average_price': current['average_price']
-                    }
-
-         # Filter out fully sold positions
-        holdings = {k: v for k, v in holdings.items() if v['quantity'] > 0}
+        holdings, _ = replay_trade_basis(transactions, portfolio.base_currency)
 
         # Write to versioned cache
         new_version = version + 1

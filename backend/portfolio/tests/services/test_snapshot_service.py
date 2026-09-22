@@ -77,6 +77,27 @@ class TestSnapshotService:
         refreshed_holdings = SnapshotService._get_historical_holdings(portfolio, snapshot_date)
         assert set(refreshed_holdings.keys()) == {stock_a.id, stock_b.id}
 
+    def test_historical_holdings_store_base_currency_cost_basis(self):
+        cache.clear()
+        portfolio = PortfolioFactory(base_currency='USD', reporting_currency='USD')
+        stock = StockFactory(currency='PEN')
+        buy = Transaction(
+            portfolio=portfolio,
+            transaction_type=Transaction.TransactionType.BUY,
+            stock=stock,
+            quantity=2,
+            amount=Decimal('80.00'),
+            executed_price=Decimal('40.00'),
+            fx_rate=Decimal('4.000000'),
+        )
+        buy._created_by_service = True
+        buy.save()
+
+        holdings = SnapshotService._get_historical_holdings(portfolio, buy.timestamp.date())
+
+        assert holdings[stock.pk]['quantity'] == 2
+        assert holdings[stock.pk]['average_price'] == Decimal('10.00')
+
     def test_historical_cash_reconstructs_usd_wallets_and_conversions(self, portfolio, set_fx_market_now):
         portfolio = PortfolioFactory(user=portfolio.user, is_default=False)
         trade_day = date(2026, 4, 16)
