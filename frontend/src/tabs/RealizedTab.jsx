@@ -1,97 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import DatePicker from '../components/DatePicker';
-import { formatCurrency, formatPercent } from '../utils/format';
+import { formatPercent } from '../utils/format';
 import { getPortfolioRealized } from '../services/api';
-
-const toNumber = (value) => {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : 0;
-};
-
-const startOfMonth = (dateObj) => new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
-
-const subtractMonths = (dateObj, count) => {
-  const base = startOfMonth(dateObj);
-  base.setMonth(base.getMonth() - count);
-  return base;
-};
-
-const parseDisplayDate = (iso) => {
-  if (!iso) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    const [year, month, day] = iso.split('-').map(Number);
-    return new Date(year, month - 1, day);
-  }
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const formatMoney = (value, currency = 'PEN') => {
-  if ((currency || 'PEN').toUpperCase() === 'USD') {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Number(value ?? 0));
-  }
-  return formatCurrency(value);
-};
-
-const DISPLAY_CURRENCY_NATIVE = 'NATIVE';
-const PAGE_SIZE_ALL = 'ALL';
-const PAGE_SIZE_OPTIONS = [25, 50, 100, PAGE_SIZE_ALL];
-
-const NICE_TICK_FACTORS = [1, 2, 2.5, 5, 10];
-
-const getNiceStep = (rawStep) => {
-  if (!Number.isFinite(rawStep) || rawStep <= 0) return 1;
-  const exponent = Math.floor(Math.log10(rawStep));
-  const magnitude = 10 ** exponent;
-  const fraction = rawStep / magnitude;
-  const chosenFactor = NICE_TICK_FACTORS.find((candidate) => fraction <= candidate) || NICE_TICK_FACTORS[NICE_TICK_FACTORS.length - 1];
-  return chosenFactor * magnitude;
-};
-
-const buildNiceTicks = (minValue, maxValue, targetIntervals = 4) => {
-  let min = Number.isFinite(minValue) ? minValue : 0;
-  let max = Number.isFinite(maxValue) ? maxValue : 0;
-
-  if (min === max) {
-    const pad = Math.max(Math.abs(min) * 0.05, 1);
-    min -= pad;
-    max += pad;
-  }
-
-  const range = Math.max(max - min, 1e-9);
-  let step = getNiceStep(range / targetIntervals);
-  let tickMin = Math.floor(min / step) * step;
-  let tickMax = Math.ceil(max / step) * step;
-
-  while (((tickMax - tickMin) / step) > targetIntervals) {
-    const nextStep = getNiceStep(step * 1.5);
-    if (nextStep <= step) {
-      step *= 2;
-    } else {
-      step = nextStep;
-    }
-    tickMin = Math.floor(min / step) * step;
-    tickMax = Math.ceil(max / step) * step;
-  }
-
-  const ticks = [];
-  for (let value = tickMin; value <= tickMax + (step / 10); value += step) {
-    ticks.push(Number(value.toFixed(6)));
-  }
-
-  return {
-    ticks,
-    min: ticks[0],
-    max: ticks[ticks.length - 1],
-    step,
-  };
-};
+import RealizedScatterChart from './realized/RealizedScatterChart';
+import ResultGauge from './realized/ResultGauge';
+import {
+  DISPLAY_CURRENCY_NATIVE,
+  formatMoney,
+  PAGE_SIZE_ALL,
+  PAGE_SIZE_OPTIONS,
+  parseDisplayDate,
+  startOfMonth,
+  subtractMonths,
+  toNumber,
+  valueColor,
+} from './realized/realizedUtils';
 
 const RealizedTab = ({ portfolio }) => {
   const portfolioId = portfolio?.id;
@@ -103,7 +27,6 @@ const RealizedTab = ({ portfolio }) => {
   const [customTo, setCustomTo] = useState('');
   const [error, setError] = useState('');
   const [realizedData, setRealizedData] = useState(null);
-  const [chartTooltip, setChartTooltip] = useState(null);
   const [totalTooltip, setTotalTooltip] = useState(null);
   const [detailPageSize, setDetailPageSize] = useState(25);
   const [detailPage, setDetailPage] = useState(1);
@@ -431,11 +354,6 @@ const RealizedTab = ({ portfolio }) => {
   const lossesAbs = Math.abs(breakdown.losses);
   const longTermPct = termBreakdown.longTermCostBasis ? (totalsDisplay.longTerm / termBreakdown.longTermCostBasis) * 100 : 0;
   const shortTermPct = termBreakdown.shortTermCostBasis ? (totalsDisplay.shortTerm / termBreakdown.shortTermCostBasis) * 100 : 0;
-  const valueColor = (value) => {
-    if (value === 0) return 'var(--text)';
-    return value > 0 ? 'var(--accent)' : 'var(--danger)';
-  };
-
   const renderPercentMeta = (value, pct) => {
     if (value === 0) return '(N/A)';
     const prefix = pct > 0 ? '+' : '';
@@ -465,70 +383,6 @@ const RealizedTab = ({ portfolio }) => {
       </div>
     );
   });
-
-  const PiePlaceholder = ({ label, gainRateValue, gains, losses }) => {
-    // If no data (both gains and losses are 0), show neutral state
-    const hasData = gains !== 0 || losses !== 0;
-    const safeRate = hasData ? Math.max(0, Math.min(1, Number.isFinite(gainRateValue) ? gainRateValue : 0)) : 0.5;
-    const gainPct = Math.round(safeRate * 100);
-
-    // Semicircle gauge: 180 degrees total
-    // Start at -90 degrees (left), end at 90 degrees (right)
-    const radius = 15.915;
-    const circumference = 2 * Math.PI * radius;
-    const halfCircle = circumference / 2; // 50 units for 180 degrees
-    const gainLength = (safeRate * halfCircle); // Length of green arc
-    const lossLength = halfCircle - gainLength; // Length of red arc
-
-    return (
-      <div>
-        <div className="tile-title" style={{ marginBottom: 12 }}>{label}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          {/* Semicircle gauge */}
-          <svg viewBox="0 0 42 26" width={200} height={120} style={{ overflow: 'visible' }}>
-            {hasData ? (
-              <>
-                {/* Base arc (red remainder) */}
-                <path
-                  d="M 5.085 21 A 15.915 15.915 0 0 1 36.915 21"
-                  fill="transparent"
-                  stroke="#ef4444"
-                  strokeWidth="6"
-                  strokeLinecap="butt"
-                />
-                {/* Gain arc (green) overlays the left portion */}
-                <path
-                  d="M 5.085 21 A 15.915 15.915 0 0 1 36.915 21"
-                  fill="transparent"
-                  stroke="#22c55e"
-                  strokeWidth="6"
-                  strokeLinecap="butt"
-                  strokeDasharray={`${gainLength} ${lossLength}`}
-                  strokeDashoffset="0"
-                />
-              </>
-            ) : (
-              /* Neutral gray arc when no data */
-              <path
-                d="M 5.085 21 A 15.915 15.915 0 0 1 36.915 21"
-                fill="transparent"
-                stroke="rgba(157,176,208,0.25)"
-                strokeWidth="6"
-                strokeLinecap="butt"
-              />
-            )}
-            {/* Center text */}
-            <text x="21" y="18" textAnchor="middle" fill="var(--text)" fontSize="5.2" fontWeight="700">
-              {hasData ? `${gainPct}%` : '—'}
-            </text>
-            <text x="21" y="23" textAnchor="middle" fill="var(--muted)" fontSize="3">
-              {hasData ? 'ratio G/P' : 'sin datos'}
-            </text>
-          </svg>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -775,7 +629,7 @@ const RealizedTab = ({ portfolio }) => {
 
               {hasDetails && (
                 <div className="realized-panel">
-                  <PiePlaceholder label="Distribución de resultados" gainRateValue={gainRate} gains={gainsAbs} losses={lossesAbs} />
+                  <ResultGauge label="Distribución de resultados" gainRateValue={gainRate} gains={gainsAbs} losses={lossesAbs} />
                 </div>
               )}
             </div>
@@ -845,7 +699,7 @@ const RealizedTab = ({ portfolio }) => {
               </div>
 
               <div className="realized-panel">
-                <PiePlaceholder label="Distribución de resultados" gainRateValue={gainRate} gains={gainsAbs} losses={lossesAbs} />
+                <ResultGauge label="Distribución de resultados" gainRateValue={gainRate} gains={gainsAbs} losses={lossesAbs} />
               </div>
             </div>
           </div>
@@ -860,220 +714,11 @@ const RealizedTab = ({ portfolio }) => {
             ? 'Valores en moneda original usando método de costo promedio.'
             : `Valores en ${currencyLabel} usando método de costo promedio.`}
         </div>
-        {(() => {
-          if (!scatterSeries.length) {
-            return (
-              <div className="card" style={{ padding: 12, marginBottom: 12, fontSize: 12, color: 'var(--danger)' }}>
-                Aún no hay movimientos realizados en el período seleccionado para graficar.
-              </div>
-            );
-          }
-          const w = 1200;
-          const h = 480;
-          const leftPad = 52;
-          const rightPad = 8;
-          const topPad = 16;
-          const bottomPad = 40;
-          const plotWidth = w - leftPad - rightPad;
-          const plotHeight = h - topPad - bottomPad;
-          const pctValues = scatterSeries.map((point) => point.pct);
-          const magnitudeValues = scatterSeries.map((point) => Math.abs(
-            activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? point.total : point.chartTotal,
-          ));
-          const maxMagnitude = Math.max(...magnitudeValues, 0);
-          const niceY = buildNiceTicks(Math.min(...pctValues), Math.max(...pctValues), 4);
-          const domainMin = niceY.min;
-          const domainMax = niceY.max;
-          const domainSpan = domainMax - domainMin || 1;
-          const minTime = scatterSeries[0].date.getTime();
-          const maxTime = scatterSeries[scatterSeries.length - 1].date.getTime();
-          const timeSpan = maxTime - minTime || 1;
-          const yFor = (value) => topPad + ((domainMax - value) / domainSpan) * plotHeight;
-          const xFor = (date) => {
-            if (scatterSeries.length === 1) return leftPad + plotWidth / 2;
-            return leftPad + ((date.getTime() - minTime) / timeSpan) * plotWidth;
-          };
-          const gridValues = niceY.ticks;
-          const xTickCount = 4;
-          const xTicks = Array.from({ length: xTickCount }, (_, idx) => {
-            const ratio = xTickCount === 1 ? 0 : idx / (xTickCount - 1);
-            const tickTime = minTime + (timeSpan * ratio);
-            return new Date(tickTime);
-          });
-          const formatShortDate = (date) => date?.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) || '—';
-          const formatAxisPct = (value) => `${value > 0 ? '+' : ''}${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
-          const zeroY = yFor(0);
-          const showZeroLine = domainMin <= 0 && domainMax >= 0;
-          const radiusFor = (magnitude) => {
-            if (maxMagnitude <= 0) return 12;
-            const normalized = Math.sqrt(Math.max(0, magnitude) / maxMagnitude);
-            return 2 + (normalized * 40);
-          };
-          const scatterBubbles = scatterSeries
-            .map((point) => ({
-              ...point,
-              radius: radiusFor(Math.abs(
-                activeDisplayMode === DISPLAY_CURRENCY_NATIVE ? point.total : point.chartTotal,
-              )),
-            }))
-            .sort((a, b) => b.radius - a.radius);
-          const fmtTooltipSigned = (value, currency) => `${value >= 0 ? '+' : '-'}${formatMoney(Math.abs(value), currency)}`;
-          const getTooltipPosition = (event) => {
-            const svgRect = event.currentTarget?.ownerSVGElement?.getBoundingClientRect();
-            if (!svgRect) return null;
-            return {
-              x: event.clientX - svgRect.left + 10,
-              y: event.clientY - svgRect.top - 10,
-            };
-          };
-          const handlePointEnter = (event, point) => {
-            const position = getTooltipPosition(event);
-            if (!position) return;
-            setChartTooltip({
-              x: position.x,
-              y: position.y,
-              point,
-            });
-          };
-          const handlePointMove = (event) => {
-            const position = getTooltipPosition(event);
-            if (!position) return;
-            setChartTooltip((current) => (
-              current
-                ? { ...current, x: position.x, y: position.y }
-                : current
-            ));
-          };
-          return (
-            <div style={{ width: '90%', margin: '0 auto 12px', padding: 4, position: 'relative' }}>
-              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  Rendimiento realizado por operación (%)
-                </div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  Gráfico basado en {scatterSeries.length} registros
-                </div>
-              </div>
-              <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: 460, display: 'block' }}>
-                {gridValues.map((value, idx) => {
-                  const y = yFor(value);
-                  return (
-                    <g key={`grid-${idx}`}>
-                      <line
-                        x1={leftPad}
-                        y1={y}
-                        x2={w - rightPad}
-                        y2={y}
-                        stroke="rgba(157,176,208,0.16)"
-                        strokeWidth="0.5"
-                      />
-                      <text
-                        x={leftPad - 1.5}
-                        y={y + 4}
-                        textAnchor="end"
-                        fill="var(--muted)"
-                        fontSize="11"
-                      >
-                        {formatAxisPct(value)}
-                      </text>
-                    </g>
-                  );
-                })}
-                {showZeroLine && (
-                  <line
-                    x1={leftPad}
-                    y1={zeroY}
-                    x2={w - rightPad}
-                    y2={zeroY}
-                    stroke="rgba(157,176,208,0.32)"
-                    strokeWidth="0.65"
-                  />
-                )}
-                {xTicks.map((tick, idx) => {
-                  const x = xFor(tick);
-                  return (
-                    <g key={`tick-${idx}`}>
-                      <line
-                        x1={x}
-                        y1={topPad}
-                        x2={x}
-                        y2={h - bottomPad}
-                        stroke="rgba(157,176,208,0.08)"
-                        strokeWidth="0.45"
-                      />
-                      <text
-                        x={x}
-                        y={h - 12}
-                        textAnchor="middle"
-                        fill="var(--muted)"
-                        fontSize="11"
-                      >
-                        {formatShortDate(tick)}
-                      </text>
-                    </g>
-                  );
-                })}
-                {scatterBubbles.map((point) => {
-                  const x = xFor(point.date);
-                  const y = yFor(point.pct);
-                  const stroke = point.total > 0 ? 'var(--accent)' : point.total < 0 ? 'var(--danger)' : 'var(--text)';
-                  const fill = point.total > 0
-                    ? 'rgba(34,197,94,0.20)'
-                    : point.total < 0
-                      ? 'rgba(239,68,68,0.20)'
-                      : 'rgba(231,238,252,0.18)';
-                  return (
-                    <circle
-                      key={point.id}
-                      cx={x}
-                      cy={y}
-                      r={point.radius}
-                      fill={fill}
-                      stroke={stroke}
-                      strokeWidth="2"
-                      style={{ cursor: 'pointer' }}
-                      onMouseEnter={(event) => handlePointEnter(event, point)}
-                      onMouseMove={handlePointMove}
-                      onMouseLeave={() => setChartTooltip(null)}
-                    />
-                  );
-                })}
-              </svg>
-              {chartTooltip && (
-                <div
-                  className="card"
-                  style={{
-                    position: 'absolute',
-                    left: Math.min(chartTooltip.x, 760),
-                    top: Math.max(chartTooltip.y, 44),
-                    padding: '10px 12px',
-                    minWidth: 220,
-                    pointerEvents: 'none',
-                    zIndex: 3,
-                    boxShadow: '0 10px 24px rgba(0,0,0,.35)',
-                    background: 'linear-gradient(180deg, rgba(18,26,47,.98), rgba(12,20,39,.98))',
-                  }}
-                >
-                  <div style={{ fontSize: 12, marginBottom: 6 }}>
-                    <span className="muted">Fecha de cierre:</span>{' '}
-                    <span>{formatDateLabel(chartTooltip.point.rawDate)}</span>
-                  </div>
-                  <div style={{ fontSize: 12, marginBottom: 6 }}>
-                    <span className="muted">Transacción:</span>{' '}
-                    <span>{chartTooltip.point.symbol} Vendido {chartTooltip.point.qty}</span>
-                  </div>
-                  <div style={{ fontSize: 12 }}>
-                    <span className="muted">Ganancia/Pérdida:</span>{' '}
-                    <span style={{ color: valueColor(chartTooltip.point.total) }}>
-                      {fmtTooltipSigned(chartTooltip.point.total, chartTooltip.point.currency)} ({chartTooltip.point.gainPct >= 0 ? '+' : ''}{formatPercent(chartTooltip.point.gainPct)})
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
+        <RealizedScatterChart
+          scatterSeries={scatterSeries}
+          activeDisplayMode={activeDisplayMode}
+          formatDateLabel={formatDateLabel}
+        />
         {(() => {
           if (!hasDetails) {
             return (
