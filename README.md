@@ -183,6 +183,7 @@ Check and build the frontend:
 ```bash
 cd frontend
 npm run lint
+npm test
 npm run build
 ```
 
