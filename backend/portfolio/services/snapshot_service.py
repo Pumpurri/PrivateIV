@@ -2,7 +2,7 @@
 from django.db import models, IntegrityError, transaction
 from django.core.exceptions import ValidationError
 import time
-from decimal import Decimal, DivisionByZero, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from django.db.models import Count, Max
 from django.utils import timezone

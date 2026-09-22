@@ -5,7 +5,7 @@ from datetime import datetime, time
 from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError
-from django.db.models import Count, Q
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import generics, permissions, status

@@ -1,4 +1,3 @@
-import os
 from TradeSimulator.env import env_flag, load_optional_dotenv
 
 load_optional_dotenv()
@@ -13,6 +12,6 @@ if env_flag('DD_TRACE_ENABLED', default=False):
         # ddtrace not installed or failed to init; continue without tracing
         pass
 
-from .celery import app as celery_app
+from .celery import app as celery_app  # noqa: E402
 
 __all__ = ('celery_app',)

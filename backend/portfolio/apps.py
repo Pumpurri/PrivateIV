@@ -6,4 +6,4 @@ class PortfolioConfig(AppConfig):
     name = 'portfolio'
 
     def ready(self):
-        import portfolio.signals
+        from portfolio import signals  # noqa: F401

@@ -1,5 +1,5 @@
 # models/transaction.py
-from django.db import models, transaction
+from django.db import models
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.core.validators import MinValueValidator
 from decimal import Decimal

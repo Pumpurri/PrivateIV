@@ -1,5 +1,8 @@
 from pathlib import Path
 import os
+
+import dj_database_url
+
 from TradeSimulator.env import env_flag, load_optional_dotenv
 
 # Local dotenv loading is explicit opt-in to avoid accidentally pulling dev secrets into
@@ -73,8 +76,6 @@ WSGI_APPLICATION = 'TradeSimulator.wsgi.application'
 
 # Database configuration
 # Railway provides DATABASE_URL, parse it with dj-database-url
-import dj_database_url
-
 database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL')
 
 if database_url:

@@ -2,9 +2,7 @@
 from celery import shared_task
 from portfolio.services import SnapshotService
 from portfolio.models import Portfolio
-from portfolio.models.daily_snapshot import DailyPortfolioSnapshot
 from django.utils import timezone
-from datetime import timedelta
 from portfolio.services.performance_service import PerformanceCalculator
 from portfolio.services.fx_ingest_service import upsert_latest_from_bcrp
 import logging
@@ -29,8 +27,11 @@ def update_all_time_weighted_returns():
             )
             portfolio.performance.time_weighted_return = result
             portfolio.performance.save(update_fields=['time_weighted_return'])
-        except Exception as e:
-            print(f"Failed to update TWR for {portfolio.id}: {e}")
+        except Exception:
+            logger.exception(
+                "Failed to update all-time weighted return",
+                extra={"portfolio_id": portfolio.id},
+            )
 
 
 @shared_task

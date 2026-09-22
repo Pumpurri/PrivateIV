@@ -1,5 +1,5 @@
 from django.db import models, transaction
-from django.db.models import Sum, F, Q
+from django.db.models import Q
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 from django.utils import timezone

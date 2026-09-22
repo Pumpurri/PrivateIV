@@ -59,7 +59,8 @@ def _norm_period_iso(s: str) -> str:
             'jul':7,'ago':8,'set':9,'sep':9,'oct':10,'nov':11,'dic':12
         }
         mm = mon_map.get(mon.lower())
-        yy = int(y); yy = 2000 + yy if yy < 100 else yy
+        yy = int(y)
+        yy = 2000 + yy if yy < 100 else yy
         if mm:
             return f"{yy:04d}-{mm:02d}-{int(d):02d}"
     s = s.replace("/", "-")

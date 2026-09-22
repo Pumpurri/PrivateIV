@@ -1,7 +1,7 @@
 import decimal
 import logging
 from decimal import Decimal
-from django.db import models, transaction
+from django.db import models
 from django.db.models import (
     Case, When, F, Value, DurationField, IntegerField, Sum, Avg, ExpressionWrapper
 )

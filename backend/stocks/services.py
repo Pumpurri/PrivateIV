@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from django.conf import settings
 from django.utils import timezone
 
-from .models import Stock
 
 load_dotenv()
 

@@ -103,7 +103,7 @@ class Command(BaseCommand):
             ))
 
             # Show current portfolio state
-            self.stdout.write(f'\n  Current Portfolio State:')
+            self.stdout.write('\n  Current Portfolio State:')
             self.stdout.write(f'    Cash: {portfolio.base_currency} {portfolio.cash_balance:,.2f}')
             self.stdout.write(f'    Investment: {portfolio.base_currency} {portfolio.current_investment_value:,.2f}')
             self.stdout.write(f'    Total: {portfolio.base_currency} {portfolio.total_value:,.2f}')

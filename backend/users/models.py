@@ -53,8 +53,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=255, blank=False, null=False)
     dob = models.DateField(blank=True, null=True, validators=[validate_age])
-    # institution = models.CharField(max_length=255, blank=True, null=True) # TODO
-    # city = models.CharField(max_length=255, blank=True, null=True) # TODO
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False) 
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -79,5 +77,4 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     @property
     def short_name(self):
         return self.full_name.split()[0]
-
 

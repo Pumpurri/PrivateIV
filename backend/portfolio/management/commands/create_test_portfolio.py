@@ -89,7 +89,7 @@ class Command(BaseCommand):
         if not user:
             raise CommandError(f"User with email {email} not found.")
 
-        self.stdout.write(f"Using database alias: default")
+        self.stdout.write("Using database alias: default")
         self.stdout.write(f"Populating user: {user.email}")
 
         stale = Portfolio.all_objects.filter(user=user, name=portfolio_name)

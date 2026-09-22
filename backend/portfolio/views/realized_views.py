@@ -339,11 +339,8 @@ class PortfolioRealizedView(APIView):
             native_summary[row_currency]['net_gain'] += net
 
             # Calculate holding period and classify as long-term or short-term
-            is_long_term = False
             long_term_gain = Decimal('0.00')
             short_term_gain = Decimal('0.00')
-            summary_long_term_gain = Decimal('0.00')
-            summary_short_term_gain = Decimal('0.00')
 
             acquisition_date = _resolve_acquisition_date(pnl)
             if acquisition_date:
@@ -352,20 +349,16 @@ class PortfolioRealizedView(APIView):
 
                 # Long-term if held for 365 days or more
                 if holding_days >= 365:
-                    is_long_term = True
                     long_term_gain = net
-                    summary_long_term_gain = summary_net
                     long_short['long_term'] += summary_net
                     native_summary[row_currency]['long_term'] += net
                 else:
                     short_term_gain = net
-                    summary_short_term_gain = summary_net
                     long_short['short_term'] += summary_net
                     native_summary[row_currency]['short_term'] += net
             else:
                 # If no acquisition date, assume short-term (conservative approach)
                 short_term_gain = net
-                summary_short_term_gain = summary_net
                 long_short['short_term'] += summary_net
                 native_summary[row_currency]['short_term'] += net
 

@@ -35,8 +35,6 @@ class UserCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Email already in use.")
         return value
     
-    # TODO: UPDATE_EMAIL
-
     def validate_dob(self, value):
         today = date.today()
         if value > today:
