@@ -95,7 +95,7 @@ class TransactionService:
 
     @classmethod
     def _process_buy(cls, transaction):
-        """SEC Rule 15c3-1 compliant buy processing"""
+        """Apply a simulated buy and update the portfolio's cash and holdings."""
         portfolio = transaction.portfolio
         stock = cls._validate_stock(transaction.stock)
         quantity = cls._validate_quantity(transaction.quantity)
@@ -141,7 +141,7 @@ class TransactionService:
 
     @classmethod
     def _process_sell(cls, transaction):
-        """SEC Rule 15c3-1 compliant sell processing"""
+        """Apply a simulated sale and record its realized gain or loss."""
         portfolio = transaction.portfolio
         stock = cls._validate_stock(transaction.stock)
         quantity = cls._validate_quantity(transaction.quantity)
@@ -206,7 +206,7 @@ class TransactionService:
 
     @classmethod
     def _process_deposit(cls, transaction):
-        """Regulation D compliant deposit processing"""
+        """Add simulated cash to a portfolio and track contributions."""
         amount = cls._validate_amount(transaction.amount)
         portfolio = transaction.portfolio
         cash_currency = cls._resolve_settlement_currency(transaction, default_currency=portfolio.base_currency)
@@ -294,7 +294,7 @@ class TransactionService:
 
     @classmethod
     def _validate_price(cls, price):
-        """Price validation per SEC Rule 612"""
+        """Require a positive decimal price and round to cents."""
         if not isinstance(price, Decimal):
             raise ValidationError("Price must be Decimal type")
         if price <= Decimal('0'):
@@ -303,7 +303,7 @@ class TransactionService:
 
     @classmethod
     def _validate_quantity(cls, quantity):
-        """Quantity validation per SEC Rule 612"""
+        """Require a positive whole-share quantity."""
         if not isinstance(quantity, int) or quantity <= 0:
             raise ValidationError(f"Invalid quantity: {quantity}")
         return quantity
