@@ -1,5 +1,7 @@
 import pytest
+from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.urls import reverse
 from django.utils import timezone
@@ -287,10 +289,11 @@ class TestPortfolioBenchmarkView:
         )
 
         self.client.force_authenticate(user=user)
-        response = self.client.get(
-            reverse('dashboard-portfolio-benchmarks', kwargs={'portfolio_id': portfolio.id}),
-            {'from': '2026-03-01', 'to': '2026-04-01', 'codes': 'sp500'},
-        )
+        with patch('portfolio.views.dashboard_views._dashboard_today', return_value=date(2026, 4, 27)):
+            response = self.client.get(
+                reverse('dashboard-portfolio-benchmarks', kwargs={'portfolio_id': portfolio.id}),
+                {'from': '2026-03-01', 'to': '2026-04-01', 'codes': 'sp500'},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         one_year = response.json()['history']['one_year']
