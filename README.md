@@ -2,7 +2,7 @@
 
 A full-stack paper-trading simulator for Peruvian and U.S. markets. It tracks simulated trades, PEN/USD cash wallets, cost basis, and historical portfolio performance through a React client and a Django API.
 
-[![CI](https://github.com/Pumpurri/PrivateIV/actions/workflows/ci.yml/badge.svg)](https://github.com/Pumpurri/PrivateIV/actions/workflows/ci.yml) · [Read-only preview](https://bolsasim.com/preview) · [Run locally](docs/development.md)
+[![CI](https://github.com/Pumpurri/paper-trading-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/Pumpurri/paper-trading-simulator/actions/workflows/ci.yml) · [Read-only preview](https://bolsasim.com/preview) · [Run locally](docs/development.md)
 
 > **Hosted demo:** The Railway API and workers are intentionally paused. The public preview uses fictional, read-only data; registration, trading, and current quotes are unavailable there.
 

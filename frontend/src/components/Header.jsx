@@ -71,7 +71,7 @@ const Header = () => {
         {!isAuthPage && !isAuthenticated && (
           <nav className="row">
             {DEMO_PAUSED ? (
-              <a className="btn primary" href="https://github.com/Pumpurri/PrivateIV">Ver el proyecto</a>
+              <a className="btn primary" href="https://github.com/Pumpurri/paper-trading-simulator">Ver el proyecto</a>
             ) : (
               <>
                 <Link className="btn primary" to="/register">Regístrate</Link>

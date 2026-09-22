@@ -94,7 +94,7 @@ export default function DemoDashboard() {
         </section>
 
         <p className="preview-disclaimer">Esta vista usa datos ficticios. La demo interactiva y las cotizaciones están pausadas.</p>
-        <div className="preview-links"><Link className="btn" to="/">Volver al inicio</Link><a className="btn primary" href="https://github.com/Pumpurri/PrivateIV">Explorar el código</a></div>
+        <div className="preview-links"><Link className="btn" to="/">Volver al inicio</Link><a className="btn primary" href="https://github.com/Pumpurri/paper-trading-simulator">Explorar el código</a></div>
       </div>
     </main>
   );
