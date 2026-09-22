@@ -339,26 +339,28 @@ const BalancesTab = ({ portfolio, transactions = [] }) => {
           if (rows.length === 0) return <div className="muted">No hay depósitos ni retiros registrados.</div>;
 
           return (
-            <table className="table" style={{ maxWidth: 520 }}>
-              <thead>
-                <tr style={{ textAlign: 'left' }}>
-                  <th>Año</th>
-                  <th>Moneda</th>
-                  <th>Total depósitos</th>
-                  <th>Total retiros</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={`${r.year}-${r.currency}`}>
-                    <td>{r.year}</td>
-                    <td>{r.currency}</td>
-                    <td>{formatAmount(r.currency, r.deposits)}</td>
-                    <td>{formatAmount(r.currency, r.withdrawals)}</td>
+            <div className="balances-table-scroll">
+              <table className="table balances-table">
+                <thead>
+                  <tr>
+                    <th>Año</th>
+                    <th>Moneda</th>
+                    <th>Total depósitos</th>
+                    <th>Total retiros</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={`${r.year}-${r.currency}`}>
+                      <td>{r.year}</td>
+                      <td>{r.currency}</td>
+                      <td>{formatAmount(r.currency, r.deposits)}</td>
+                      <td>{formatAmount(r.currency, r.withdrawals)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         })()}
       </div>

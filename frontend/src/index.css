@@ -200,6 +200,9 @@ a:hover { color: var(--primary-600); }
 .table th, .table td { padding: 10px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table thead th { color: var(--muted); font-weight: 500; }
 .table tbody tr { border-top: 1px solid var(--border); }
+.balances-table-scroll { overflow-x: auto; }
+table.table.balances-table { display: table; max-width: 720px; min-width: 600px; table-layout: auto; }
+.table.balances-table th, .table.balances-table td { overflow: visible; text-overflow: clip; }
 .returns-compact thead th {
   background: linear-gradient(180deg, rgba(80, 115, 180, 0.14), rgba(157, 176, 208, 0.06));
   box-shadow: inset 0 -1px 0 rgba(157, 176, 208, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.03);
