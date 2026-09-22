@@ -1,41 +1,29 @@
-Minimal Datadog APM (opt‑in)
+# Optional observability
 
-Prereqs
-- Datadog account + API key
-- Docker (to run local Agent)
+Tracing is **off by default**. Ordinary Django, Celery, and test runs do not need a Datadog account or agent. The [tracing helper](portfolio/services/tracing.py) imports `ddtrace` only when `DD_TRACE_ENABLED=true`.
 
-1) Install tracer
-- Add to your environment (already in requirements.txt):
-  pip install ddtrace
+## Enable local tracing
 
-2) Run Datadog Agent locally (receives traces)
-- Replace <your_key> with your Datadog API key
-  docker run -d --name dd-agent \
-    -e DD_API_KEY=<your_key> \
-    -e DD_APM_ENABLED=true \
-    -p 8126:8126 \
-    gcr.io/datadoghq/agent:latest
+Install `backend/requirements.txt`, set a local Datadog API key outside Git, and start the agent only if you want to send traces to Datadog:
 
-3) Run Django with tracing
-- Use ddtrace-run wrapper and set env vars:
-  DD_SERVICE="TradeSimulator" \
-  DD_ENV="Dev" \
-  DD_LOGS_INJECTION=true \
-  ./observability/run_apm_django.sh
+```bash
+cd backend
+export DD_API_KEY=your-local-datadog-key
+docker compose -f docker-compose.datadog.yml up -d
+```
 
-4) (Optional) Celery with tracing
-  DD_SERVICE="TradeSimulator-worker" \
-  DD_ENV="Dev" \
-  DD_LOGS_INJECTION=true \
-  ./observability/run_apm_celery.sh
+The compose file enables APM and collects container logs. Review that collection and Datadog billing/privacy settings before using it with any real data. Never commit the API key. To trace Django and Celery, run their wrappers from `backend/` in separate terminals:
 
-Notes
-- This repo includes light custom spans around transaction execution and daily snapshots.
-- Tracing is off by default; the wrapper scripts explicitly set `DD_TRACE_ENABLED=true`.
-- If ddtrace is not installed, spans no‑op and tests are unaffected.
-- Avoid tagging PII in spans.
+```bash
+DD_SERVICE=bolsasim-api DD_ENV=development ./observability/run_apm_django.sh
+```
 
-Useful envs
-- DD_LOGS_INJECTION=true (correlate logs ↔ traces)
-- DD_TRACE_SAMPLE_RATE=1.0 (dev only)
-- DD_AGENT_HOST=host.docker.internal (app runs in Docker, Agent on host)
+```bash
+DD_SERVICE=bolsasim-worker DD_ENV=development ./observability/run_apm_celery.sh
+```
+
+The wrappers set `DD_TRACE_ENABLED=true` and use `ddtrace-run` for automatic instrumentation. Setting `DD_TRACE_ENABLED=true` without a wrapper enables only the app's custom spans, not automatic framework instrumentation.
+
+Custom spans cover `transaction.execute`, `transaction.process`, trade and cash actions, and `snapshot.daily` in [transaction settlement](portfolio/services/transaction_service.py) and [snapshot generation](portfolio/services/snapshot_service.py). Do not put user identifiers, credentials, or financial details in span tags or logs.
+
+Stop the local agent with `docker compose -f docker-compose.datadog.yml down` when finished. This documentation does not require starting the paused Railway services.
