@@ -6,10 +6,29 @@ The hosted Railway services are intentionally paused. These instructions use you
 
 - Python 3.11
 - Node.js 24.15 or newer in the 24.x line, and npm
-- PostgreSQL for a regular local setup
-- Redis only if you want background or scheduled jobs
+- PostgreSQL only for a regular local setup; the fastest walkthrough below uses SQLite
+- Redis only for background or scheduled jobs
 
-## Start the API
+## Fastest local walkthrough
+
+This creates one fictional account and portfolio in a fresh temporary SQLite database. It needs no PostgreSQL, Redis, provider keys, or Railway services. From the repository root:
+
+```bash
+python3.11 -m venv backend/venv
+backend/venv/bin/pip install -r backend/requirements.txt
+SHOWCASE_DB_DIR=$(mktemp -d)
+export DATABASE_URL="sqlite:///$SHOWCASE_DB_DIR/showcase.sqlite3"
+export SECRET_KEY=local-showcase-only-key
+export DEBUG=True
+export SHOWCASE_PASSWORD=choose-a-local-only-password
+backend/venv/bin/python backend/manage.py migrate
+backend/venv/bin/python backend/manage.py create_showcase_portfolio --confirm-disposable
+backend/venv/bin/python backend/manage.py runserver
+```
+
+In a second terminal, run `npm ci` and `npm run dev` from `frontend/`. Open `http://localhost:5173` and sign in as `showcase@example.invalid` with the password you chose. All trades, holdings, and prices are generated local data. Stop the servers and remove the temporary database directory when finished.
+
+## Regular PostgreSQL development
 
 From the repository root:
 
@@ -21,7 +40,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set a development `SECRET_KEY`, `DEBUG=True`, and a local `DATABASE_URL` in `backend/.env`. The [environment template](../backend/.env.example) has the remaining options. It is loaded only when `DJANGO_LOAD_DOTENV=true` is set:
+Set a development `SECRET_KEY`, `DEBUG=True`, and a local `DATABASE_URL` in `backend/.env`. Create the PostgreSQL database and role named by that URL before migrating; the sample `postgres:postgres` URL works only if that role, password, and `privateiv` database already exist. The [environment template](../backend/.env.example) has the remaining options. It is loaded only when `DJANGO_LOAD_DOTENV=true` is set:
 
 ```bash
 export DJANGO_LOAD_DOTENV=true
@@ -55,25 +74,7 @@ python manage.py create_test_portfolio --username you@example.com \
 
 It requires `DEBUG=True`, writes stocks and historical prices, and refuses to replace an existing same-name portfolio unless `--reset` is explicit. No market-data provider key is required.
 
-For a clean one-portfolio showcase, start with a **fresh, empty disposable database**. From `backend/`, with its Python environment active:
-
-```bash
-SHOWCASE_DB_DIR=$(mktemp -d)
-export DATABASE_URL="sqlite:///$SHOWCASE_DB_DIR/showcase.sqlite3"
-export SHOWCASE_PASSWORD=choose-a-local-only-password
-python manage.py migrate
-python manage.py create_showcase_portfolio --confirm-disposable
-python manage.py runserver
-```
-
-This creates `showcase@example.invalid`, generated prices and trades, snapshots, and an annualized return. It refuses nonempty databases. Remove the temporary database when you are done. The browser test automates the same flow and cleans up its own SQLite database afterward. From `frontend/`, after installing npm dependencies:
-
-```bash
-npx playwright install chromium
-PYTHON_BIN=./backend/venv/bin/python npm run test:e2e
-```
-
-Pass `-- --capture-image` to that npm command to refresh [`authenticated-portfolio.png`](images/authenticated-portfolio.png). Review the image before committing it.
+The guarded showcase command above refuses nonempty databases. The browser test automates its setup and removes its own temporary SQLite database afterward.
 
 ## Background jobs and providers
 
@@ -111,6 +112,15 @@ npm run test:e2e
 ```
 
 The browser test uses a fresh temporary SQLite database. CI also migrates a disposable PostgreSQL database and runs `ops_smoke_test` with a stubbed benchmark provider. Neither check uses Railway.
+
+From `frontend/`, after installing npm dependencies and Playwright Chromium, the browser test can use the backend virtual environment created above. `PYTHON_BIN` is resolved from the repository root by the test runner:
+
+```bash
+npx playwright install chromium
+PYTHON_BIN=./backend/venv/bin/python npm run test:e2e
+```
+
+Pass `-- --capture-image` to that npm command to refresh [`authenticated-portfolio.png`](images/authenticated-portfolio.png). Review the image before committing it.
 
 ## API and deployment
 
