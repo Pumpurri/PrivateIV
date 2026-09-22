@@ -4,6 +4,10 @@ PrivateIV is a full-stack investment simulator for building and tracking virtual
 
 > PrivateIV is an educational simulator. It does not execute real trades or provide investment advice.
 
+> **Demo status:** The hosted Railway backend and background workers are intentionally paused. The frontend can be previewed, but sign-in, trading, and live market data will not work until the backend is redeployed.
+
+![BolsaSim landing page captured from a local frontend run](docs/images/landing.png)
+
 ## Features
 
 - Email-based registration and session authentication
