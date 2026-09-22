@@ -217,22 +217,7 @@ Populate a small starter set of U.S. stocks:
 python manage.py populate_stocks
 ```
 
-### Auditing older cost basis
-
-Trades made before the base-currency cost-basis fix may have incorrect holdings, realized P&L, or historical holding snapshot basis. With a database backup in place, audit one portfolio at a time:
-
-```bash
-cd backend
-python manage.py repair_trade_basis --portfolio-id 123
-```
-
-The default is a read-only dry run. Review every proposed change, including the stock's current currency and the recorded transaction FX rates, before applying:
-
-```bash
-python manage.py repair_trade_basis --portfolio-id 123 --apply
-```
-
-The command rejects missing FX rates, incomplete trades, and quantity mismatches; it never guesses a rate or edits cash balances. It cannot prove whether a stock's currency changed after an old trade, so verify that history manually before applying. Run it against a database snapshot first if possible. The hosted services remain paused unless explicitly restarted.
+For legacy cost-basis auditing and pre-relaunch checks, see [maintenance notes](docs/maintenance.md). The hosted services are intentionally paused.
 
 ## Environment variables
 
