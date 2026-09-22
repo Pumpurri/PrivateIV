@@ -254,9 +254,9 @@ const Landing = () => {
                     <path d="M12 8v4l3 2" />
                   </svg>
                 </span>
-                <h3 className="text-lg md:text-xl" style={{ margin: 0 }}>Precios en Tiempo Real</h3>
+                <h3 className="text-lg md:text-xl" style={{ margin: 0 }}>Seguimiento de precios</h3>
               </div>
-              <p className="muted text-sm md:text-base">Precios actualizados y respaldo histórico para valorar tu portafolio con fidelidad.</p>
+              <p className="muted text-sm md:text-base">Actualizaciones programadas durante el horario de mercado e historial para valorar tu portafolio.</p>
             </div>
             <div data-animate="slide-up" id="feature-3" className={`card feature flex flex-col items-center text-center gap-2 p-4 md:p-5 ${isVisible['feature-3'] ? 'animate-slide-up' : ''}`} style={{ animationDelay: '0.3s', width: 402, height: 108 }}>
               <div className="row" style={{ alignItems: 'center', justifyContent: 'center', gap: 8 }}>
