@@ -8,6 +8,7 @@ import {
   updatePortfolio,
   deletePortfolio,
 } from '../services/api';
+import { formatRatePercent } from '../utils/format';
 
 const fmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const CURRENCY_PREFIX = { PEN: 'S/ ', USD: '$ ' };
@@ -980,7 +981,7 @@ function UserDashboard() {
                       </div>
                       <div className="card">
                         <div className="muted">TWR anual</div>
-                        <div>{Number(overview.portfolio.twr_annualized).toFixed(4)}</div>
+                        <div>{formatRatePercent(overview.portfolio.twr_annualized)}</div>
                       </div>
                       <div className="card">
                         <div className="muted">Hoy</div>

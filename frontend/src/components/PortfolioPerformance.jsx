@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getPortfolioPerformance } from '../services/api';
-import { formatCurrency, formatPercent } from '../utils/format';
+import { formatCurrency, formatPercent, formatRatePercent } from '../utils/format';
 
 const PortfolioPerformance = () => {
   const { id } = useParams();
@@ -35,7 +35,7 @@ const PortfolioPerformance = () => {
       <div className="grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
         <div className="card"><div className="muted">Depósitos totales</div><div style={{ fontSize: 20 }}>{formatCurrency(data.total_deposits)}</div></div>
         <div className="card"><div className="muted">Retiros totales</div><div style={{ fontSize: 20 }}>{formatCurrency(data.total_withdrawals)}</div></div>
-        <div className="card"><div className="muted">Retorno ponderado por tiempo</div><div style={{ fontSize: 20 }}>{data.time_weighted_return}</div></div>
+        <div className="card"><div className="muted">Retorno ponderado por tiempo</div><div style={{ fontSize: 20 }}>{formatRatePercent(data.time_weighted_return)}</div></div>
         <div className="card"><div className="muted">Retorno total</div><div style={{ fontSize: 20 }}>{formatPercent(data.total_return_percentage)}</div></div>
       </div>
       <div className="muted" style={{ marginTop: 8 }}>Última actualización: {new Date(data.last_updated).toLocaleString()}</div>
