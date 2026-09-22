@@ -31,6 +31,7 @@ Prereqs
 
 Notes
 - This repo includes light custom spans around transaction execution and daily snapshots.
+- Tracing is off by default; the wrapper scripts explicitly set `DD_TRACE_ENABLED=true`.
 - If ddtrace is not installed, spans no‑op and tests are unaffected.
 - Avoid tagging PII in spans.
 

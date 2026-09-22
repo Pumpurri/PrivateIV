@@ -14,5 +14,5 @@ fi
 # Default bind if not provided
 HOST_PORT=${HOST_PORT:-0.0.0.0:8000}
 
+export DD_TRACE_ENABLED=true
 exec ddtrace-run python manage.py runserver "$HOST_PORT"
-

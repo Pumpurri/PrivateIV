@@ -11,5 +11,5 @@ if ! command -v ddtrace-run >/dev/null 2>&1; then
   exit 1
 fi
 
+export DD_TRACE_ENABLED=true
 exec ddtrace-run celery -A TradeSimulator worker -l info
-
