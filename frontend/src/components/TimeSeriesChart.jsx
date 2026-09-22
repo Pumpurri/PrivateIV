@@ -766,7 +766,7 @@ const TimeSeriesChart = ({
                 <text
                   x={x}
                   y={inner.margin.top + inner.height + 18}
-                  textAnchor="middle"
+                  textAnchor={idx === 0 ? 'start' : idx === timeTicks.length - 1 ? 'end' : 'middle'}
                   fontSize="11"
                   fill="var(--muted, #64748b)"
                 >
