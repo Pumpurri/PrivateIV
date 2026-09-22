@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { createPortal } from 'react-dom';
 import {
   getDashboard,
   getPortfolioOverviewApi,
@@ -8,29 +7,13 @@ import {
   updatePortfolio,
   deletePortfolio,
 } from '../services/api';
-import { formatRatePercent } from '../utils/format';
-
-const fmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const CURRENCY_PREFIX = { PEN: 'S/ ', USD: '$ ' };
-const money = (n, currency = 'PEN') => {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return '-';
-  const prefix = CURRENCY_PREFIX[currency] ?? '';
-  return `${prefix}${fmt.format(Number(n))}`;
-};
-const pct = (n) => {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return '-';
-  return `${Number(n).toFixed(2)}%`;
-};
-
-const readStoredCurrencyMode = () => {
-  try {
-    const raw = localStorage.getItem('dashboardCurrencyMode');
-    if (raw === 'PEN' || raw === 'USD') return raw;
-  } catch {
-    /* ignore */
-  }
-  return 'PEN';
-};
+import { ChangePill, MoneyValue } from './dashboard/DashboardValues';
+import PortfolioOverview from './dashboard/PortfolioOverview';
+import {
+  formatTimeHHMM,
+  isMarketOpen,
+  readStoredCurrencyMode,
+} from './dashboard/dashboardFormat';
 function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,31 +33,6 @@ function UserDashboard() {
     typeof window !== 'undefined' ? window.innerWidth <= 768 : false
   );
   const [detailEnter, setDetailEnter] = useState(false);
-  const [editingMeta, setEditingMeta] = useState(false);
-  const [draftName, setDraftName] = useState('');
-  const [draftDesc, setDraftDesc] = useState('');
-  const [savingMeta, setSavingMeta] = useState(false);
-
-  // Delete confirmation modal state
-  const [deletingMeta, setDeletingMeta] = useState(false);
-  const [deleteInput, setDeleteInput] = useState('');
-  const [deletingBusy, setDeletingBusy] = useState(false);
-
-  const normalize = (s) =>
-    (s || '')
-      .toString()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-
-  const popRef = useRef(null);
-  const nameInputRef = useRef(null);
-  const nameWrapRef = useRef(null);
-  const origNameRef = useRef('');
-  const origDescRef = useRef('');
-
   // Drag + FLIP animation helpers
   const isDraggingRef = useRef(false);
   const itemRefs = useRef({});
@@ -293,102 +251,64 @@ function UserDashboard() {
   if (loading) return <div className="muted">Cargando panel…</div>;
   if (!dash) return <div className="down">No se pudo cargar el panel</div>;
 
-  const hasValue = (v) => v !== null && v !== undefined && !Number.isNaN(Number(v));
-
-  const renderSignedMoney = (value, currency) => {
-    if (!hasValue(value)) return { sign: '', className: '', text: '-' };
-    const up = Number(value) >= 0;
-    return {
-      sign: up ? '+' : '−',
-      className: up ? 'up' : 'down',
-      text: money(Math.abs(value), currency),
-    };
-  };
-
-  const Pill = ({ label, portfolioLike, absKey, pctKey, mode }) => {
-    const obj = portfolioLike || {};
-    if (mode === 'percent') {
-      const v = obj[pctKey];
-      const up = hasValue(v) ? Number(v) >= 0 : null;
-      return (
-        <span className="badge">
-          <span className="muted">{label}</span>
-          <span className={up === null ? '' : up ? 'up' : 'down'} style={{ fontWeight: 600 }}>
-            {up === null ? '' : up ? '+' : '−'}
-            {hasValue(v) ? pct(Math.abs(v)) : '-'}
-          </span>
-        </span>
-      );
-    }
-
-    const info = renderSignedMoney(obj[absKey], currencyMode);
-    return (
-      <span className="badge">
-        <span className="muted">{label}</span>
-        <span className={info.className} style={{ fontWeight: 600 }}>
-          {info.sign}
-          {info.text}
-        </span>
-      </span>
-    );
-  };
-
-  const MoneyValue = ({ portfolioLike, fieldKey, style }) => {
-    const obj = portfolioLike || {};
-    return <span style={style}>{money(obj[fieldKey], currencyMode)}</span>;
-  };
-
-  const colorClassFor = (v) => (hasValue(v) ? (Number(v) >= 0 ? 'up' : 'down') : '');
-
-  const SignedMoneyValue = ({ portfolioLike, fieldKey }) => {
-    const obj = portfolioLike || {};
-    const v = obj[fieldKey];
-    return <span className={colorClassFor(v)}>{money(v, currencyMode)}</span>;
-  };
-
   const hasSelection = !!selectedId;
   const compact = !hasSelection;
+  const nyseOpen = isMarketOpen(now, 'America/New_York', 9, 30, 16, 0);
+  const bvlOpen = isMarketOpen(now, 'America/Lima', 8, 30, 16, 30);
 
-  const formatTimeHHMM = (value) => {
-    if (!value) return '--:--';
-    const d = new Date(value);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
+  const savePortfolioMetadata = async (payload) => {
+    const currentPortfolio = overview?.portfolio;
+    if (!currentPortfolio) return false;
+    const previous = {
+      name: currentPortfolio.name,
+      description: currentPortfolio.description,
+    };
+
+    setOverview((current) => (
+      current ? { ...current, portfolio: { ...current.portfolio, ...payload } } : current
+    ));
+    setPortfolios((items) => items.map((item) => (
+      item.id === currentPortfolio.id ? { ...item, ...payload } : item
+    )));
+
+    try {
+      await updatePortfolio(currentPortfolio.id, payload);
+      try {
+        const fresh = await getPortfolioOverviewApi(currentPortfolio.id, {
+          days: 30,
+          currency: currencyMode,
+        });
+        setOverview(fresh);
+      } catch {
+        // Keep the successfully saved optimistic state if refreshing fails.
+      }
+      return true;
+    } catch {
+      setOverview((current) => (
+        current ? { ...current, portfolio: { ...current.portfolio, ...previous } } : current
+      ));
+      setPortfolios((items) => items.map((item) => (
+        item.id === currentPortfolio.id ? { ...item, ...previous } : item
+      )));
+      return false;
+    }
   };
 
-  const isOpenInTZ = (date, timeZone, openH, openM, closeH, closeM) => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const get = (type) => parts.find((p) => p.type === type)?.value || '';
-    const wd = get('weekday');
-    if (wd === 'Sat' || wd === 'Sun') return false;
-    const h = Number(get('hour'));
-    const m = Number(get('minute'));
-    if (Number.isNaN(h) || Number.isNaN(m)) return false;
-    const mins = h * 60 + m;
-    const openMin = openH * 60 + openM;
-    const closeMin = closeH * 60 + closeM;
-    return mins >= openMin && mins < closeMin;
+  const removeSelectedPortfolio = async () => {
+    const portfolioId = overview?.portfolio?.id;
+    if (!portfolioId) return;
+    await deletePortfolio(portfolioId);
+    const freshDashboard = await getDashboard({ currency: currencyMode });
+    setDash(freshDashboard);
+    const ordered = applySavedOrder(freshDashboard.portfolios || []);
+    const topId = ordered[0]?.id;
+    setPortfolios(ordered.map((portfolio) => ({
+      ...portfolio,
+      is_default: portfolio.id === topId,
+    })));
+    setSelectedId(null);
+    setOverview(null);
   };
-
-  const nyseOpen = isOpenInTZ(now, 'America/New_York', 9, 30, 16, 0);
-  const bvlOpen = isOpenInTZ(now, 'America/Lima', 8, 30, 16, 30);
-
-  const formatDateDDMM = (value) => {
-    if (!value) return '';
-    const d = new Date(value);
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    return `${dd}/${mm}`;
-  };
-
-  // No mock data: show '-' or empty states when data is missing
 
   return (
     <div className="dashboard">
@@ -602,13 +522,28 @@ function UserDashboard() {
                     style={{ justifyItems: 'center', textAlign: 'center', gap: isMobile ? 2 : 4, flex: '0 0 auto', minWidth: isMobile ? undefined : 160 }}
                   >
                     <MoneyValue
-                      portfolioLike={p}
-                      fieldKey="total_value"
+                      portfolio={p}
+                      field="total_value"
+                      currency={currencyMode}
                       style={{ fontSize: isMobile ? 14 : 16, fontWeight: 600 }}
                     />
                     <div className="row" style={{ gap: isMobile ? 2 : 4, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-                      <Pill label="Día" portfolioLike={p} absKey="day_change_abs" pctKey="day_change_pct" mode={badgeMode} />
-                      <Pill label="Acum." portfolioLike={p} absKey="since_inception_abs" pctKey="since_inception_pct" mode={badgeMode} />
+                      <ChangePill
+                        label="Día"
+                        portfolio={p}
+                        amountKey="day_change_abs"
+                        percentKey="day_change_pct"
+                        mode={badgeMode}
+                        currency={currencyMode}
+                      />
+                      <ChangePill
+                        label="Acum."
+                        portfolio={p}
+                        amountKey="since_inception_abs"
+                        percentKey="since_inception_pct"
+                        mode={badgeMode}
+                        currency={currencyMode}
+                      />
                     </div>
                   </div>
                 </div>
@@ -643,464 +578,16 @@ function UserDashboard() {
               </div>
             )}
 
-            <div className={`dash-panel ${detailEnter ? 'enter' : ''}`} style={{ alignSelf: 'start' }}>
-              <div className="card">
-                {loadingOverview || !overview ? (
-                  <div className="muted">Cargando resumen…</div>
-                ) : overview.portfolio ? (
-                  <div className="grid" style={{ gap: 10 }}>
-                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div ref={nameWrapRef} style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
-                        <div className="row" style={{ alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, flex: '1 1 auto' }}>
-                            <h3
-                              style={{
-                                margin: 0,
-                                marginLeft: 8,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                flex: 'none',
-                              }}
-                              title={overview.portfolio.name}
-                            >
-                              {overview.portfolio.name}
-                            </h3>
-                            <div className="row" style={{ gap: 2, alignItems: 'center', flex: 'none' }}>
-                              <button
-                                className="icon-inline-btn"
-                                aria-label="Editar"
-                                disabled={deletingMeta}
-                                onClick={() => {
-                                  if (deletingMeta) return;
-                                  setEditingMeta(true);
-                                  const curName = overview.portfolio.name || '';
-                                  const curDesc = overview.portfolio.description || '';
-                                  origNameRef.current = curName;
-                                  origDescRef.current = curDesc;
-                                  setDraftName(curName);
-                                  setDraftDesc(curDesc);
-                                }}
-                                title="Editar"
-                              >
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                </svg>
-                              </button>
-                              <button
-                                className="icon-inline-btn"
-                                aria-label="Eliminar"
-                                disabled={editingMeta}
-                                title="Eliminar portafolio"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (editingMeta) return;
-                                  setDeleteInput('');
-                                  setDeletingMeta(true);
-                                }}
-                              >
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <polyline points="3 6 5 6 21 6"></polyline>
-                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                                  <path d="M10 11v6"></path>
-                                  <path d="M14 11v6"></path>
-                                  <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-
-                          {editingMeta
-                            ? createPortal(
-                                <div
-                                  style={{
-                                    position: 'fixed', inset: 0,
-                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                                    padding: '64px 16px',
-                                    background: 'rgba(0,0,0,0.35)',
-                                    backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)',
-                                    zIndex: 1000,
-                                  }}
-                                >
-                                  <div
-                                    ref={popRef}
-                                    className="card"
-                                    style={{
-                                      width: 'min(720px, 96vw)',
-                                      maxHeight: 'calc(100vh - 128px)',
-                                      padding: 12,
-                                      overflow: 'auto',
-                                      background: 'rgba(18,26,47,0.98)',
-                                      borderRadius: 12,
-                                      boxShadow: '0 12px 32px rgba(0,0,0,.35)',
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <form
-                                      className="grid"
-                                      style={{ gap: 8 }}
-                                      onSubmit={async (e) => {
-                                        e.preventDefault();
-                                        if (savingMeta) return;
-                                        const name = draftName.trim();
-                                        if (!name) {
-                                          try {
-                                            nameInputRef.current?.focus();
-                                            nameInputRef.current?.select();
-                                          } catch {
-                                            // The input may have unmounted before focus.
-                                          }
-                                          return;
-                                        }
-                                        setSavingMeta(true);
-                                        const id = overview.portfolio.id;
-                                        const payload = { name, description: draftDesc.trim() };
-                                        const prev = { name: overview.portfolio.name, description: overview.portfolio.description };
-                                        try {
-                                          // Optimistic sync
-                                          setOverview((o) => (o ? { ...o, portfolio: { ...o.portfolio, ...payload } } : o));
-                                          setPortfolios((list) =>
-                                            list.map((pp) => (pp.id === id ? { ...pp, name: payload.name, description: payload.description } : pp))
-                                          );
-                                          await updatePortfolio(id, payload);
-                                          try {
-                                            const fresh = await getPortfolioOverviewApi(id, { days: 30 });
-                                            setOverview(fresh);
-                                          } catch {
-                                            /* keep optimistic */
-                                          }
-                                          setEditingMeta(false);
-                                        } catch {
-                                          setOverview((o) => ({ ...o, portfolio: { ...o.portfolio, ...prev } }));
-                                        } finally {
-                                          setSavingMeta(false);
-                                        }
-                                      }}
-                                    >
-                                      <div className="grid" style={{ gap: 6 }}>
-                                        <label className="muted" htmlFor="pf-name">
-                                          Nombre
-                                        </label>
-                                        <input
-                                          id="pf-name"
-                                          ref={nameInputRef}
-                                          className="input"
-                                          value={draftName}
-                                          maxLength={100}
-                                          onChange={(e) => setDraftName(e.target.value)}
-                                          autoFocus
-                                          style={{ fontSize: 12, padding: '6px 8px' }}
-                                        />
-                                      </div>
-                                      <div className="grid" style={{ gap: 6 }}>
-                                        <label className="muted" htmlFor="pf-desc">
-                                          Descripción
-                                        </label>
-                                        <textarea
-                                          id="pf-desc"
-                                          className="input"
-                                          rows={6}
-                                          value={draftDesc}
-                                          style={{ fontSize: 12, padding: '6px 8px' }}
-                                          onChange={(e) => setDraftDesc(e.target.value)}
-                                        />
-                                      </div>
-                                      <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                                        <button
-                                          type="button"
-                                          className="btn xs ghost"
-                                          onClick={() => {
-                                            const n0 = origNameRef.current;
-                                            const d0 = origDescRef.current;
-                                            setOverview((o) => ({ ...o, portfolio: { ...o.portfolio, name: n0, description: d0 } }));
-                                            setEditingMeta(false);
-                                          }}
-                                        >
-                                          ✕
-                                        </button>
-                                        <button className="btn xs primary" type="submit" disabled={savingMeta || !draftName.trim()}>
-                                          {savingMeta ? 'Guardando…' : 'Guardar'}
-                                        </button>
-                                      </div>
-                                    </form>
-                                  </div>
-                                </div>,
-                                document.body
-                              )
-                            : null}
-
-                          {deletingMeta
-                            ? createPortal(
-                                <div
-                                  style={{
-                                    position: 'fixed', inset: 0,
-                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                                    padding: '64px 16px',
-                                    background: 'rgba(0,0,0,0.35)',
-                                    backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)',
-                                    zIndex: 1000,
-                                  }}
-                                >
-                                  <div
-                                    className="card"
-                                    style={{
-                                      width: 'min(720px, 96vw)',
-                                      maxHeight: 'calc(100vh - 128px)',
-                                      padding: 12,
-                                      overflow: 'auto',
-                                      background: 'rgba(18,26,47,0.98)',
-                                      borderRadius: 12,
-                                      boxShadow: '0 12px 32px rgba(0,0,0,.35)',
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <div className="grid" style={{ gap: 8 }}>
-                                      <h4 style={{ margin: 0 }}>Eliminar portafolio</h4>
-                                      <p className="muted" style={{ margin: 0 }}>
-                                        Para eliminar tu portafolio, escribe exactamente &quot;eliminar {overview.portfolio.name}&quot;.
-                                      </p>
-                                      <input
-                                        className="input"
-                                        placeholder={`eliminar ${overview.portfolio.name}`}
-                                        value={deleteInput}
-                                        onChange={(e) => setDeleteInput(e.target.value)}
-                                        autoFocus
-                                      />
-                                      <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                                        <button
-                                          type="button"
-                                          className="btn xs ghost"
-                                          onClick={() => {
-                                            setDeletingMeta(false);
-                                            setDeleteInput('');
-                                          }}
-                                        >
-                                          ✕
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn xs danger"
-                                          disabled={
-                                            deletingBusy ||
-                                            normalize(deleteInput) !== normalize(`eliminar ${overview.portfolio.name}`)
-                                          }
-                                          onClick={async () => {
-                                            if (deletingBusy) return;
-                                            setDeletingBusy(true);
-                                            try {
-                                              const id = overview.portfolio.id;
-                                              await deletePortfolio(id);
-                                              const d = await getDashboard();
-                                              setDash(d);
-                                              const ordered = applySavedOrder(d.portfolios || []);
-                                              const topId = ordered[0]?.id;
-                                              const withDefault = ordered.map((pp) => ({
-                                                ...pp,
-                                                is_default: pp.id === topId,
-                                              }));
-                                              setPortfolios(withDefault);
-                                              setSelectedId(null);
-                                              setOverview(null);
-                                              setDeletingMeta(false);
-                                              setDeleteInput('');
-                                            } catch {
-                                              alert('No se pudo eliminar el portafolio. Intenta de nuevo.');
-                                            } finally {
-                                              setDeletingBusy(false);
-                                            }
-                                          }}
-                                        >
-                                          {deletingBusy ? 'Eliminando…' : 'Eliminar'}
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>,
-                                document.body
-                              )
-                            : null}
-                        </div>
-                        
-                        {overview.portfolio.description && (
-                          <div>
-                            <span className="pill truncate" title={overview.portfolio.description}>
-                              {overview.portfolio.description}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ textAlign: 'right', flex: 'none' }}>
-                        <div className="muted" style={{ fontSize: 12 }}>
-                          Valor total
-                        </div>
-                        <MoneyValue
-                          portfolioLike={overview.portfolio}
-                          fieldKey="total_value"
-                          style={{ fontWeight: 700, fontSize: 20 }}
-                        />
-                      </div>
-                    </div>
-
-                    <div
-                      className="grid"
-                      style={{ gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0,1fr))', gap: isMobile ? 8 : 10 }}
-                    >
-                      <div className="card">
-                        <div className="muted">Efectivo</div>
-                        <MoneyValue portfolioLike={overview.portfolio} fieldKey="cash_balance" />
-                      </div>
-                      <div className="card">
-                        <div className="muted">Inversión</div>
-                        <MoneyValue portfolioLike={overview.portfolio} fieldKey="current_investment_value" />
-                      </div>
-                      <div className="card">
-                        <div className="muted">Activos</div>
-                        <div>{overview.portfolio.holdings_count}</div>
-                      </div>
-                      <div className="card">
-                        <div className="muted">TWR anual</div>
-                        <div>{formatRatePercent(overview.portfolio.twr_annualized)}</div>
-                      </div>
-                      <div className="card">
-                        <div className="muted">Hoy</div>
-                        <div>
-                          {badgeMode === 'percent' ? (
-                            <span className={hasValue(overview.portfolio.day_change_pct) ? (Number(overview.portfolio.day_change_pct) >= 0 ? 'up' : 'down') : ''}>
-                              {hasValue(overview.portfolio.day_change_pct) ? pct(overview.portfolio.day_change_pct) : '-'}
-                            </span>
-                          ) : (
-                            <SignedMoneyValue portfolioLike={overview.portfolio} fieldKey="day_change_abs" />
-                          )}
-                        </div>
-                      </div>
-                      <div className="card">
-                        <div className="muted">Desde inicio</div>
-                        <div>
-                          {badgeMode === 'percent' ? (
-                            <span className={hasValue(overview.portfolio.since_inception_pct) ? (Number(overview.portfolio.since_inception_pct) >= 0 ? 'up' : 'down') : ''}>
-                              {hasValue(overview.portfolio.since_inception_pct) ? pct(overview.portfolio.since_inception_pct) : '-'}
-                            </span>
-                          ) : (
-                            <SignedMoneyValue portfolioLike={overview.portfolio} fieldKey="since_inception_abs" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid" style={{ gridTemplateColumns: isMobile ? '1fr' : '1.25fr 0.75fr', gap: 10 }}>
-                      {/* Actividad reciente (wider, first) */}
-                      <div className="card">
-                        <div className="muted" style={{ marginBottom: 6 }}>
-                          Actividad reciente
-                        </div>
-                        <div className="table-wrap">
-                          <table className="table table-transactions">
-                            <thead>
-                              <tr>
-                                <th>Fecha</th>
-                                <th>Tipo</th>
-                                <th>Símbolo</th>
-                                <th>Cant.</th>
-                                <th>Monto</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(overview.recent_transactions?.length ? overview.recent_transactions : [])
-                                .filter((tx) => {
-                                  const oneYearAgo = new Date();
-                                  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-                                  return new Date(tx.timestamp) >= oneYearAgo;
-                                })
-                                .slice(0, isMobile ? 2 : 3)
-                                .map((tx) => (
-                                  <tr key={tx.id}>
-                                    <td>{formatDateDDMM(tx.timestamp) || '-'}</td>
-                                    <td>{tx.transaction_type_display || '-'}</td>
-                                    <td>{tx.stock_symbol || '-'}</td>
-                                    <td>{tx.quantity ?? '-'}</td>
-                                    <td>{tx.amount != null ? `${CURRENCY_PREFIX[tx.cash_currency] ?? ''}${fmt.format(Number(tx.amount))}` : '-'}</td>
-                                  </tr>
-                                ))}
-                              {!(overview.recent_transactions?.length) && (
-                                <tr>
-                                  <td colSpan="5" style={{ textAlign: 'center', color: 'var(--muted)', padding: '16px' }}>-</td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                      {/* Composición (smaller, second) */}
-                      <div className="card">
-                        <div className="muted" style={{ marginBottom: 6 }}>
-                          Composición
-                        </div>
-                        <div className="table-wrap">
-                          <table className="table table-composition">
-                            <thead>
-                              <tr>
-                                <th>Símbolo</th>
-                                <th>Peso</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {overview.composition?.length ? (
-                                overview.composition
-                                  .slice(0, isMobile ? 2 : 3)
-                                  .map((h, i) => (
-                                    <tr key={i}>
-                                      <td>{h.symbol}</td>
-                                      <td>{h.weight_pct}%</td>
-                                    </tr>
-                                  ))
-                              ) : (
-                                <tr>
-                                  <td colSpan="2" style={{ textAlign: 'center', color: 'var(--muted)', padding: '16px' }}>
-                                    No tienes inversiones aún
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-
-                    {overview.portfolio?.id && (
-                      <div style={{ textAlign: 'center' }}>
-                        <Link to={`/app/portfolios/${overview.portfolio.id}`} className="btn sm primary">
-                          Ver detalle
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-              ) : (
-                <div className="muted">Selecciona un portafolio</div>
-              )}
-            </div>
-            </div>
+            <PortfolioOverview
+              overview={overview}
+              loading={loadingOverview}
+              entering={detailEnter}
+              isMobile={isMobile}
+              badgeMode={badgeMode}
+              currencyMode={currencyMode}
+              onSave={savePortfolioMetadata}
+              onDelete={removeSelectedPortfolio}
+            />
           </div>
         )}
       </div>
